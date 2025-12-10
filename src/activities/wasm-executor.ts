@@ -90,20 +90,58 @@ export class WasmActivityExecutor {
     // Serialize input to JSON
     const inputJson = JSON.stringify(input)
 
-    // For now, we'll assume the WASM module exports memory and string helpers
-    // In a real implementation, you'd need to pass strings via linear memory
-
     // Execute with timeout
     const timeout = definition.limits?.maxExecutionMs || 30000
     const result = await this.withTimeout(
       async () => {
-        // Call the WASM function (simplified - real implementation needs memory management)
-        return execute(inputJson)
+        // Call the WASM function
+        // AssemblyScript exports __new, __pin, __unpin, __collect for memory management
+        const exports = instance.exports as any
+        
+        // Allocate string in WASM memory
+        const strPtr = this.allocateString(exports, inputJson)
+        
+        // Execute
+        const resultPtr = exports.execute(strPtr) as number
+        
+        // Read result string from WASM memory
+        const resultStr = this.readString(exports, resultPtr)
+        
+        return resultStr
       },
       timeout
     )
 
     return JSON.parse(result as string)
+  }
+  
+  /**
+   * Allocate a JavaScript string in WASM memory
+   */
+  private allocateString(exports: any, str: string): number {
+    const buffer = Buffer.from(str, 'utf16le')
+    const len = buffer.length
+    const ptr = exports.__new(len, 1) // Allocate memory
+    const mem = new Uint8Array(exports.memory.buffer)
+    mem.set(buffer, ptr)
+    return ptr
+  }
+  
+  /**
+   * Read a string from WASM memory
+   */
+  private readString(exports: any, ptr: number): string {
+    const mem = new Uint8Array(exports.memory.buffer)
+    
+    // Find string length (AssemblyScript strings are UTF-16)
+    let len = 0
+    while (mem[ptr + len] !== 0 || mem[ptr + len + 1] !== 0) {
+      len += 2
+      if (len > 1000000) break // Safety limit
+    }
+    
+    const buffer = mem.slice(ptr, ptr + len)
+    return Buffer.from(buffer).toString('utf16le')
   }
 
   /**
@@ -111,7 +149,12 @@ export class WasmActivityExecutor {
    */
   private createImports(definition: ActivityDefinition): WebAssembly.Imports {
     const imports: WebAssembly.Imports = {
-      env: {},
+      env: {
+        // AssemblyScript requires an abort function
+        abort: (msg: number, file: number, line: number, column: number) => {
+          throw new Error(`WASM abort at line ${line}, column ${column}`)
+        }
+      },
     }
 
     // Add capabilities based on definition
