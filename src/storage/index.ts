@@ -6,3 +6,4 @@ export * from './lock-manager'
 // Implementations
 export * from './bullmq-message-queue'
 export * from './redis-lock-manager'
+export * from './cosmos-state-store'
