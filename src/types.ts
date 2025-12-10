@@ -4,7 +4,7 @@
 export interface Message {
   messageId: string
   actorId: string
-  messageType: 'event' | 'activate' | 'resume'
+  messageType: 'execute' | 'event' | 'activate' | 'resume' | 'activity_completed' | 'activity_failed'
   correlationId: string
   payload: Record<string, unknown>
   metadata: {
