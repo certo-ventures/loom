@@ -13,15 +13,10 @@
     "example:counter": "tsx examples/run-counter.ts",
     "example:wasm": "tsx examples/run-wasm.ts",
     "demo:observability": "tsx examples/observability-demo.ts",
+    "demo:discovery": "tsx examples/discovery-demo.ts",
     "asbuild:echo": "asc assembly/echo.ts --outFile build/echo.wasm --optimize --exportRuntime --runtime stub"
   },
-  "keywords": [
-    "actor",
-    "workflow",
-    "durable",
-    "ai",
-    "agents"
-  ],
+  "keywords": ["actor", "workflow", "durable", "ai", "agents"],
   "author": "",
   "license": "MIT",
   "devDependencies": {
@@ -30,10 +25,5 @@
     "typescript": "^5.9.3",
     "vitest": "^4.0.15",
     "zod": "^4.1.13"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.71.2",
-    "@google/generative-ai": "^0.24.1",
-    "openai": "^6.10.0"
   }
 }
