@@ -1,8 +1,10 @@
 import type { ActorRuntime, ActorFactory } from './actor-runtime'
 import type { MessageQueue } from '../storage'
-import type { Message } from '../types'
+import type { Message, RetryPolicy } from '../types'
 import { ActivitySuspendError, EventSuspendError } from '../actor'
 import type { ActivityExecutor } from './activity-executor'
+import { RetryHandler } from './retry-handler'
+import { DEFAULT_RETRY_POLICIES } from '../types'
 
 /**
  * ActorWorker - The heartbeat of the system!
@@ -13,19 +15,24 @@ import type { ActivityExecutor } from './activity-executor'
  * 3. Executes actor with message payload
  * 4. Handles suspensions (activities, events)
  * 5. Deactivates actor when done
+ * 6. Retries on failures with exponential backoff
  * 
  * This is what makes everything RUN autonomously!
  */
 export class ActorWorker {
   private isRunning = false
   private workerPromise: Promise<void> | null = null
+  private retryHandler: RetryHandler
 
   constructor(
     private runtime: ActorRuntime,
     private messageQueue: MessageQueue,
     private actorType: string, // Which type of actors this worker processes
-    private activityExecutor?: ActivityExecutor // Optional - for activity execution
-  ) {}
+    private activityExecutor?: ActivityExecutor, // Optional - for activity execution
+    private retryPolicy: RetryPolicy = DEFAULT_RETRY_POLICIES.message
+  ) {
+    this.retryHandler = new RetryHandler(messageQueue, retryPolicy)
+  }
 
   /**
    * Start the worker loop

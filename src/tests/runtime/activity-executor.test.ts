@@ -5,6 +5,7 @@ import { ActivitySuspendError } from '../../actor'
 import type { BlobStore, MessageQueue } from '../../storage'
 import type { Message } from '../../types'
 import type { ActivityDefinition } from '../../activities/wasm-executor'
+import { DEFAULT_RETRY_POLICIES } from '../../types'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -65,7 +66,14 @@ describe('ActivityExecutor', () => {
     activityStore = new InMemoryActivityStore()
     blobStore = new InMemoryBlobStore()
     messageQueue = new InMemoryMessageQueue()
-    executor = new ActivityExecutor(activityStore, blobStore, messageQueue)
+    
+    // Use no-retry policy for faster tests
+    executor = new ActivityExecutor(
+      activityStore,
+      blobStore,
+      messageQueue,
+      DEFAULT_RETRY_POLICIES.none
+    )
 
     // Load the echo WASM module for testing
     const wasmPath = path.join(process.cwd(), 'build', 'echo.wasm')

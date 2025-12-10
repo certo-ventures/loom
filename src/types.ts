@@ -4,7 +4,7 @@
 export interface Message {
   messageId: string
   actorId: string
-  messageType: 'execute' | 'event' | 'activate' | 'resume' | 'activity_completed' | 'activity_failed'
+  messageType: 'execute' | 'event' | 'activate' | 'resume' | 'activity_completed' | 'activity_failed' | 'retry' | 'timer'
   correlationId: string
   payload: Record<string, unknown>
   metadata: {
@@ -12,6 +12,9 @@ export interface Message {
     sender?: string
     priority: number
     ttl?: number
+    retryCount?: number // Track retry attempts
+    maxRetries?: number // Maximum retries allowed
+    originalMessageId?: string // For tracking retry chain
   }
 }
 
@@ -28,4 +31,44 @@ export interface ActorState {
   createdAt: string
   lastActivatedAt: string
   metadata?: Record<string, unknown>
+}
+
+/**
+ * RetryPolicy - Configuration for retry behavior
+ */
+export interface RetryPolicy {
+  maxRetries: number
+  initialDelayMs: number
+  maxDelayMs: number
+  backoffMultiplier: number
+  retryableErrors?: string[] // If specified, only retry these error types
+}
+
+/**
+ * Default retry policies for different scenarios
+ */
+export const DEFAULT_RETRY_POLICIES = {
+  // Activity execution failures
+  activity: {
+    maxRetries: 3,
+    initialDelayMs: 1000,
+    maxDelayMs: 30000,
+    backoffMultiplier: 2,
+  } as RetryPolicy,
+
+  // Message processing failures
+  message: {
+    maxRetries: 5,
+    initialDelayMs: 500,
+    maxDelayMs: 60000,
+    backoffMultiplier: 2,
+  } as RetryPolicy,
+
+  // No retries
+  none: {
+    maxRetries: 0,
+    initialDelayMs: 0,
+    maxDelayMs: 0,
+    backoffMultiplier: 1,
+  } as RetryPolicy,
 }
