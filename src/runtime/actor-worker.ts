@@ -2,6 +2,7 @@ import type { ActorRuntime, ActorFactory } from './actor-runtime'
 import type { MessageQueue } from '../storage'
 import type { Message } from '../types'
 import { ActivitySuspendError, EventSuspendError } from '../actor'
+import type { ActivityExecutor } from './activity-executor'
 
 /**
  * ActorWorker - The heartbeat of the system!
@@ -22,7 +23,8 @@ export class ActorWorker {
   constructor(
     private runtime: ActorRuntime,
     private messageQueue: MessageQueue,
-    private actorType: string // Which type of actors this worker processes
+    private actorType: string, // Which type of actors this worker processes
+    private activityExecutor?: ActivityExecutor // Optional - for activity execution
   ) {}
 
   /**
@@ -132,17 +134,16 @@ export class ActorWorker {
     // Deactivate the suspended actor
     await this.runtime.deactivateActor(actorId)
 
-    // TODO: This will be implemented in Activity Execution Integration
-    // For now, just log that we need to execute the activity
-    console.log(
-      `Actor ${actorId} suspended for activity: ${error.activityName}`,
-      `Activity ID: ${error.activityId}`
-    )
-
-    // In the next step, we'll:
-    // 1. Resolve activity definition from ActivityStore
-    // 2. Download WASM from BlobStore
-    // 3. Execute via WasmExecutor
-    // 4. Enqueue activity_completed message to resume actor
+    // If we have an activity executor, use it!
+    if (this.activityExecutor) {
+      await this.activityExecutor.execute(actorId, this.actorType, error)
+    } else {
+      // No executor - just log (for testing/development)
+      console.log(
+        `Actor ${actorId} suspended for activity: ${error.activityName}`,
+        `Activity ID: ${error.activityId}`,
+        `Note: No ActivityExecutor configured - activity will not execute`
+      )
+    }
   }
 }
