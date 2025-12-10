@@ -5,6 +5,7 @@ import { ActivitySuspendError, EventSuspendError } from '../actor'
 import type { ActivityExecutor } from './activity-executor'
 import { RetryHandler } from './retry-handler'
 import { DEFAULT_RETRY_POLICIES } from '../types'
+import { logger, metrics } from '../observability'
 
 /**
  * ActorWorker - The heartbeat of the system!
@@ -92,9 +93,13 @@ export class ActorWorker {
 
     try {
       // 1. Activate actor (or get if already active)
+      logger.debug({ actorId, messageType }, 'Activating actor')
       const actor = await this.runtime.activateActor(actorId, this.actorType)
+      metrics.increment('actor.activated', 1, { actorType: this.actorType })
 
       // 2. Execute based on message type
+      const execStart = Date.now()
+      
       if (messageType === 'execute') {
         // Initial execution
         await actor.execute(payload)
@@ -112,19 +117,36 @@ export class ActorWorker {
         await actor.resume(eventType, data)
       }
 
+      const execDuration = Date.now() - execStart
+      logger.debug({ actorId, durationMs: execDuration }, 'Actor executed')
+      metrics.timing('actor.execution', execDuration, { actorType: this.actorType })
+
       // 3. Deactivate actor (saves state, releases lock)
       await this.runtime.deactivateActor(actorId)
+      metrics.increment('actor.deactivated', 1, { actorType: this.actorType })
     } catch (error) {
       if (error instanceof ActivitySuspendError) {
         // Actor suspended waiting for activity - this is expected!
+        logger.info(
+          { actorId, activityId: error.activityId, activityName: error.activityName },
+          'Actor suspended for activity'
+        )
+        metrics.increment('actor.suspended.activity', 1, { actorType: this.actorType })
+        
         // The activity will be executed separately, then actor resumed
         await this.handleActivitySuspension(actorId, error)
       } else if (error instanceof EventSuspendError) {
         // Actor suspended waiting for event - this is expected!
+        logger.info({ actorId, eventType: error.eventType }, 'Actor suspended for event')
+        metrics.increment('actor.suspended.event', 1, { actorType: this.actorType })
+        
         // Just deactivate, it will resume when event arrives
         await this.runtime.deactivateActor(actorId)
       } else {
         // Actual error - deactivate and rethrow
+        logger.error({ err: error, actorId }, 'Actor execution error')
+        metrics.increment('actor.errors', 1, { actorType: this.actorType })
+        
         await this.runtime.deactivateActor(actorId)
         throw error
       }
@@ -143,13 +165,20 @@ export class ActorWorker {
 
     // If we have an activity executor, use it!
     if (this.activityExecutor) {
+      logger.debug(
+        { actorId, activityId: error.activityId, activityName: error.activityName },
+        'Executing activity'
+      )
       await this.activityExecutor.execute(actorId, this.actorType, error)
     } else {
       // No executor - just log (for testing/development)
-      console.log(
-        `Actor ${actorId} suspended for activity: ${error.activityName}`,
-        `Activity ID: ${error.activityId}`,
-        `Note: No ActivityExecutor configured - activity will not execute`
+      logger.warn(
+        {
+          actorId,
+          activityId: error.activityId,
+          activityName: error.activityName,
+        },
+        'No ActivityExecutor configured - activity will not execute'
       )
     }
   }

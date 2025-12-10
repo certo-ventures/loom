@@ -6,6 +6,7 @@ import type { ActivitySuspendError } from '../actor'
 import { RetryHandler } from './retry-handler'
 import { DEFAULT_RETRY_POLICIES } from '../types'
 import type { RetryPolicy } from '../types'
+import { logger, metrics } from '../observability'
 
 /**
  * ActivityExecutor - Executes activities when actors suspend
@@ -42,16 +43,36 @@ export class ActivityExecutor {
     retryCount: number = 0
   ): Promise<void> {
     const { activityId, activityName, input } = error
+    const startTime = Date.now()
+
+    const actLogger = logger.child({
+      actorId,
+      activityId,
+      activityName,
+      retryCount,
+    })
+
+    actLogger.info('Starting activity execution')
+    metrics.increment('activity.started', 1, { activityName })
 
     try {
       // 1. Resolve activity definition from store
       const definition = await this.activityStore.resolve(activityName)
+      actLogger.debug({ version: definition.version }, 'Activity resolved')
 
       // 2. Execute the activity via WASM executor WITH RETRIES
       const result = await this.retryHandler.withRetry(
         () => this.wasmExecutor.execute(definition, input),
         this.retryPolicy
       )
+
+      const duration = Date.now() - startTime
+      actLogger.info({ durationMs: duration }, 'Activity completed successfully')
+      metrics.increment('activity.completed', 1, { activityName })
+      metrics.timing('activity.duration', duration, {
+        activityName,
+        status: 'success',
+      })
 
       // 3. Enqueue activity_completed message to resume actor
       await this.messageQueue.enqueue(`actor:${actorType}`, {
@@ -70,6 +91,17 @@ export class ActivityExecutor {
         },
       })
     } catch (executionError: any) {
+      const duration = Date.now() - startTime
+      actLogger.error(
+        { err: executionError, durationMs: duration },
+        'Activity failed after all retries'
+      )
+      metrics.increment('activity.failed', 1, { activityName })
+      metrics.timing('activity.duration', duration, {
+        activityName,
+        status: 'failed',
+      })
+
       // Activity failed after all retries - enqueue failure message
       await this.messageQueue.enqueue(`actor:${actorType}`, {
         messageId: `activity-error-${activityId}`,
