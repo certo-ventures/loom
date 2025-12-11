@@ -1,4 +1,5 @@
 import type { Journal, JournalEntry, ActorContext } from './journal'
+import type { StreamChunk } from '../streaming/types'
 
 /**
  * Base Actor class - all actors extend this
@@ -29,6 +30,23 @@ export abstract class Actor {
    * Main execution entry point - override this
    */
   abstract execute(input: unknown): Promise<void>
+
+  /**
+   * Streaming execution - yields progressive results
+   * Default implementation wraps execute() in a single chunk
+   * Override for true streaming behavior
+   */
+  async *stream(input: unknown): AsyncGenerator<StreamChunk, void, unknown> {
+    yield { type: 'start' }
+    
+    try {
+      await this.execute(input)
+      yield { type: 'complete', data: this.state }
+    } catch (error) {
+      yield { type: 'error', error: error as Error }
+      throw error
+    }
+  }
 
   /**
    * Update actor state (plain JSON)

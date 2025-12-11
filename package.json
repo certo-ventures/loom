@@ -16,7 +16,13 @@
     "demo:discovery": "tsx examples/discovery-demo.ts",
     "asbuild:echo": "asc assembly/echo.ts --outFile build/echo.wasm --optimize --exportRuntime --runtime stub"
   },
-  "keywords": ["actor", "workflow", "durable", "ai", "agents"],
+  "keywords": [
+    "actor",
+    "workflow",
+    "durable",
+    "ai",
+    "agents"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
@@ -25,5 +31,10 @@
     "typescript": "^5.9.3",
     "vitest": "^4.0.15",
     "zod": "^4.1.13"
+  },
+  "dependencies": {
+    "bullmq": "^5.65.1",
+    "ioredis": "^5.8.2",
+    "openai": "^6.10.0"
   }
 }

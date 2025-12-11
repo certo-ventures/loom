@@ -26,4 +26,28 @@ export interface ActorContext {
   actorType: string
   correlationId: string
   parentActorId?: string
+  sharedMemory?: SharedMemory
+}
+
+/**
+ * Shared memory interface for distributed coordination
+ */
+export interface SharedMemory {
+  write(key: string, value: any, options?: { seconds?: number }): Promise<void>
+  read<T = any>(key: string): Promise<T | null>
+  delete(key: string): Promise<void>
+  exists(key: string): Promise<boolean>
+  
+  append(key: string, value: any, options?: { seconds?: number }): Promise<void>
+  readList<T = any>(key: string): Promise<T[]>
+  
+  hset(key: string, field: string, value: any, options?: { seconds?: number }): Promise<void>
+  hgetall<T = Record<string, any>>(key: string): Promise<T | null>
+  hget<T = any>(key: string, field: string): Promise<T | null>
+  
+  sadd(key: string, value: any, options?: { seconds?: number }): Promise<void>
+  smembers<T = any>(key: string): Promise<T[]>
+  
+  incr(key: string): Promise<number>
+  decr(key: string): Promise<number>
 }
