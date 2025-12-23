@@ -1,0 +1,37 @@
+# Don't publish examples or demos
+src/examples/
+src/Agent.ts
+src/DaprAgentBase.ts
+src/agents/
+src/llm/adapters/DaprAdapter.ts
+src/registry/ComponentRegistry.ts
+src/storage/daprStateStore.ts
+src/json/wdl-json-parser.ts
+
+# Test files
+tests/
+demos/
+*.test.ts
+*.spec.ts
+
+# Development files
+.vscode/
+.git/
+.gitignore
+*.log
+rust/
+assembly/
+
+# Documentation
+docs/
+documenttation/
+*.md
+!README.md
+
+# Config files
+tsconfig.json
+vitest.config.ts
+loom.config*.yaml
+actors.config*.yaml
+actors.config.json
+asconfig.json

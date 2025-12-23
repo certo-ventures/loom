@@ -1,10 +1,14 @@
 {
-  "name": "@certoai/loom",
+  "name": "@certo-ventures/loom",
   "version": "0.1.0",
   "description": "Minimal durable execution framework for AI agents",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/certo-ventures/loom.git"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
