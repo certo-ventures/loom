@@ -1,30 +1,94 @@
 {
   "name": "@certo-ventures/loom",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Minimal durable execution framework for AI agents",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "repository": {
     "type": "git",
     "url": "https://github.com/certo-ventures/loom.git"
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
     },
-    "./pipelines": {
-      "types": "./dist/pipelines/index.d.ts",
-      "import": "./dist/pipelines/index.js"
+    "./actor": {
+      "types": "./dist/src/actor/index.d.ts",
+      "import": "./dist/src/actor/index.js"
+    },
+    "./ai": {
+      "types": "./dist/src/ai/index.d.ts",
+      "import": "./dist/src/ai/index.js"
+    },
+    "./activities": {
+      "types": "./dist/src/activities/index.d.ts",
+      "import": "./dist/src/activities/index.js"
+    },
+    "./config": {
+      "types": "./dist/src/config/index.d.ts",
+      "import": "./dist/src/config/index.js"
+    },
+    "./config-resolver": {
+      "types": "./dist/src/config-resolver/index.d.ts",
+      "import": "./dist/src/config-resolver/index.js"
     },
     "./discovery": {
-      "types": "./dist/discovery/index.d.ts",
-      "import": "./dist/discovery/index.js"
+      "types": "./dist/src/discovery/index.d.ts",
+      "import": "./dist/src/discovery/index.js"
+    },
+    "./observability": {
+      "types": "./dist/src/observability/index.d.ts",
+      "import": "./dist/src/observability/index.js"
+    },
+    "./pipelines": {
+      "types": "./dist/src/pipelines/index.d.ts",
+      "import": "./dist/src/pipelines/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/src/runtime/index.d.ts",
+      "import": "./dist/src/runtime/index.js"
+    },
+    "./secrets": {
+      "types": "./dist/src/secrets/index.d.ts",
+      "import": "./dist/src/secrets/index.js"
+    },
+    "./shared-memory": {
+      "types": "./dist/src/shared-memory/index.d.ts",
+      "import": "./dist/src/shared-memory/index.js"
+    },
+    "./state": {
+      "types": "./dist/src/state/index.d.ts",
+      "import": "./dist/src/state/index.js"
     },
     "./storage": {
-      "types": "./dist/storage/index.d.ts",
-      "import": "./dist/storage/index.js"
+      "types": "./dist/src/storage/index.d.ts",
+      "import": "./dist/src/storage/index.js"
+    },
+    "./streaming": {
+      "types": "./dist/src/streaming/index.d.ts",
+      "import": "./dist/src/streaming/index.js"
+    },
+    "./task": {
+      "types": "./dist/src/task/index.d.ts",
+      "import": "./dist/src/task/index.js"
+    },
+    "./tlsnotary": {
+      "types": "./dist/src/tlsnotary/index.d.ts",
+      "import": "./dist/src/tlsnotary/index.js"
+    },
+    "./tracing": {
+      "types": "./dist/src/tracing/index.d.ts",
+      "import": "./dist/src/tracing/index.js"
+    },
+    "./triggers": {
+      "types": "./dist/src/triggers/index.d.ts",
+      "import": "./dist/src/triggers/index.js"
+    },
+    "./workflow": {
+      "types": "./dist/src/workflow/index.d.ts",
+      "import": "./dist/src/workflow/index.js"
     }
   },
   "files": [
