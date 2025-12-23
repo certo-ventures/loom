@@ -1,4 +1,4 @@
-import type { ActorState } from '../types'
+import type { ActorState, TraceContext } from '../types'
 import type { StateStore } from './state-store'
 
 /**
@@ -7,7 +7,7 @@ import type { StateStore } from './state-store'
 export class InMemoryStateStore implements StateStore {
   private store = new Map<string, ActorState>()
 
-  async save(actorId: string, state: ActorState): Promise<void> {
+  async save(actorId: string, state: ActorState, trace?: TraceContext): Promise<void> {
     this.store.set(actorId, state)
   }
 

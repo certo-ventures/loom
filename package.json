@@ -1,20 +1,63 @@
 {
-  "name": "loom",
+  "name": "@certoai/loom",
   "version": "0.1.0",
   "description": "Minimal durable execution framework for AI agents",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./pipelines": {
+      "types": "./dist/pipelines/index.d.ts",
+      "import": "./dist/pipelines/index.js"
+    },
+    "./discovery": {
+      "types": "./dist/discovery/index.d.ts",
+      "import": "./dist/discovery/index.js"
+    },
+    "./storage": {
+      "types": "./dist/storage/index.d.ts",
+      "import": "./dist/storage/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "scripts": {
-    "build": "tsc",
+    "setup": "./scripts/setup-dev.sh",
+    "build:rust": "./scripts/build-rust.sh",
+    "build:tlsn": "cd rust/tlsn-verifier && cargo build --target wasm32-unknown-unknown --release && cd ../.. && wasm-bindgen rust/target/wasm32-unknown-unknown/release/tlsn_verifier.wasm --out-dir build/tlsn --target bundler --typescript",
+    "build:ts": "tsc",
+    "build": "npm run build:ts",
+    "test:rust": "cd rust && cargo test",
+    "test:tlsn": "npm run build:tlsn && tsx examples/test-tlsnotary.ts",
+    "test:ts": "vitest run",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "check:rust": "./scripts/check-rust.sh",
+    "check:ts": "tsc --noEmit",
+    "check": "npm run check:ts",
+    "clean": "rm -rf build dist rust/target",
     "example:counter": "tsx examples/run-counter.ts",
     "example:wasm": "tsx examples/run-wasm.ts",
+    "example:real-wasm": "tsx examples/run-real-wasm-activity.ts",
+    "example:tls-notary": "tsx examples/tls-notary-actor.ts",
+    "example:loan-workflow": "tsx examples/loan-workflow-with-tls.ts",
     "demo:observability": "tsx examples/observability-demo.ts",
     "demo:discovery": "tsx examples/discovery-demo.ts",
-    "asbuild:echo": "asc assembly/echo.ts --outFile build/echo.wasm --optimize --exportRuntime --runtime stub"
+    "demo:studio-integration": "tsx examples/studio-integration-demo.ts",
+    "studio:demo": "tsx demos/studio-live-demo.ts",
+    "asbuild:echo": "asc assembly/echo.ts --outFile build/echo.wasm --optimize --exportRuntime --runtime stub",
+    "asbuild:counter": "asc examples/wasm/counter-actor.ts --outFile build/counter-actor.wasm --optimize --exportRuntime --runtime stub"
   },
   "keywords": [
     "actor",
@@ -26,15 +69,34 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@azure/cosmos": "^4.9.0",
+    "@types/express": "^5.0.6",
+    "@types/ioredis": "^4.28.10",
+    "@types/js-yaml": "^4.0.9",
+    "@types/jsonpath": "^0.2.4",
     "@types/node": "^24.10.2",
+    "@types/redis": "^4.0.10",
+    "assemblyscript": "^0.28.9",
+    "pino": "^10.1.0",
+    "redlock": "^5.0.0-beta.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.15",
     "zod": "^4.1.13"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
+    "@azure/storage-blob": "^12.29.1",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "bullmq": "^5.65.1",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
     "ioredis": "^5.8.2",
-    "openai": "^6.10.0"
+    "js-yaml": "^4.1.1",
+    "jsonpath": "^1.1.1",
+    "openai": "^6.10.0",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.4.449"
   }
 }

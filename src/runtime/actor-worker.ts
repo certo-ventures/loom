@@ -1,11 +1,13 @@
 import type { ActorRuntime, ActorFactory } from './actor-runtime'
 import type { MessageQueue } from '../storage'
-import type { Message, RetryPolicy } from '../types'
+import type { Message, RetryPolicy, TraceContext } from '../types'
 import { ActivitySuspendError, EventSuspendError } from '../actor'
 import type { ActivityExecutor } from './activity-executor'
 import { RetryHandler } from './retry-handler'
 import { DEFAULT_RETRY_POLICIES } from '../types'
 import { logger, metrics } from '../observability'
+import { TraceWriter } from '../observability/tracer'
+import type { Container } from '@azure/cosmos'
 
 /**
  * ActorWorker - The heartbeat of the system!
@@ -24,15 +26,21 @@ export class ActorWorker {
   private isRunning = false
   private workerPromise: Promise<void> | null = null
   private retryHandler: RetryHandler
+  private tracer?: TraceWriter
+  private messageArchive?: Container
 
   constructor(
     private runtime: ActorRuntime,
     private messageQueue: MessageQueue,
     private actorType: string, // Which type of actors this worker processes
     private activityExecutor?: ActivityExecutor, // Optional - for activity execution
-    private retryPolicy: RetryPolicy = DEFAULT_RETRY_POLICIES.message
+    private retryPolicy: RetryPolicy = DEFAULT_RETRY_POLICIES.message,
+    tracer?: TraceWriter,
+    messageArchive?: Container
   ) {
     this.retryHandler = new RetryHandler(messageQueue, retryPolicy)
+    this.tracer = tracer
+    this.messageArchive = messageArchive
   }
 
   /**
@@ -90,6 +98,44 @@ export class ActorWorker {
    */
   private async processMessage(message: Message): Promise<void> {
     const { actorId, messageType, payload } = message
+    const startTime = Date.now()
+    const span_id = TraceWriter.generateId()
+
+    // Archive message for reference (7-day TTL)
+    if (this.messageArchive) {
+      try {
+        await this.messageArchive.items.create({
+          id: message.messageId,
+          ...message,
+          ttl: 604800 // 7 days
+        })
+      } catch (err) {
+        // Already exists or failed - continue
+      }
+    }
+
+    // Emit message:received event
+    if (this.tracer) {
+      await this.tracer.emit({
+        trace_id: message.trace.trace_id,
+        span_id,
+        parent_span_id: message.trace.span_id,
+        event_type: 'message:received',
+        timestamp: new Date().toISOString(),
+        refs: {
+          message: {
+            message_id: message.messageId,
+            queue_name: `actor:${this.actorType}`,
+            correlation_id: message.correlationId
+          }
+        },
+        metadata: {
+          actor_type: this.actorType,
+          actor_id: actorId,
+          message_type: messageType
+        }
+      })
+    }
 
     try {
       // 1. Activate actor (or get if already active)
@@ -124,6 +170,28 @@ export class ActorWorker {
       // 3. Deactivate actor (saves state, releases lock)
       await this.runtime.deactivateActor(actorId)
       metrics.increment('actor.deactivated', 1, { actorType: this.actorType })
+      
+      // Emit message:completed event
+      if (this.tracer) {
+        await this.tracer.emit({
+          trace_id: message.trace.trace_id,
+          span_id,
+          event_type: 'message:completed',
+          timestamp: new Date().toISOString(),
+          status: 'success',
+          refs: {
+            actor_state: {
+              actor_id: actorId,
+              state_version: new Date().toISOString(),
+              container: 'actor-states',
+              partition_key: actorId
+            }
+          },
+          metadata: {
+            duration_ms: Date.now() - startTime
+          }
+        })
+      }
     } catch (error) {
       if (error instanceof ActivitySuspendError) {
         // Actor suspended waiting for activity - this is expected!
@@ -134,7 +202,7 @@ export class ActorWorker {
         metrics.increment('actor.suspended.activity', 1, { actorType: this.actorType })
         
         // The activity will be executed separately, then actor resumed
-        await this.handleActivitySuspension(actorId, error)
+        await this.handleActivitySuspension(actorId, error, message.trace)
       } else if (error instanceof EventSuspendError) {
         // Actor suspended waiting for event - this is expected!
         logger.info({ actorId, eventType: error.eventType }, 'Actor suspended for event')
@@ -147,6 +215,22 @@ export class ActorWorker {
         logger.error({ err: error, actorId }, 'Actor execution error')
         metrics.increment('actor.errors', 1, { actorType: this.actorType })
         
+        // Emit message:failed event
+        if (this.tracer) {
+          await this.tracer.emit({
+            trace_id: message.trace.trace_id,
+            span_id,
+            event_type: 'message:failed',
+            timestamp: new Date().toISOString(),
+            status: 'failed',
+            metadata: {
+              error: (error as Error).message,
+              error_type: (error as Error).constructor.name,
+              duration_ms: Date.now() - startTime
+            }
+          })
+        }
+        
         await this.runtime.deactivateActor(actorId)
         throw error
       }
@@ -158,7 +242,8 @@ export class ActorWorker {
    */
   private async handleActivitySuspension(
     actorId: string,
-    error: ActivitySuspendError
+    error: ActivitySuspendError,
+    trace?: TraceContext
   ): Promise<void> {
     // Deactivate the suspended actor
     await this.runtime.deactivateActor(actorId)
@@ -169,7 +254,7 @@ export class ActorWorker {
         { actorId, activityId: error.activityId, activityName: error.activityName },
         'Executing activity'
       )
-      await this.activityExecutor.execute(actorId, this.actorType, error)
+      await this.activityExecutor.execute(actorId, this.actorType, error, 0, trace)
     } else {
       // No executor - just log (for testing/development)
       logger.warn(

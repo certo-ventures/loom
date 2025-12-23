@@ -1,0 +1,49 @@
+{
+  "actorId": "text-analyzer",
+  "actorType": "text-analyzer",
+  "version": "1.0.0",
+  "displayName": "Text Analyzer",
+  "description": "Analyzes text and returns word count, character count, and linguistic statistics",
+  "tags": ["text", "analysis", "nlp", "statistics"],
+  "isPublic": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "description": "Text to analyze"
+      }
+    },
+    "required": ["text"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "wordCount": {
+        "type": "number",
+        "description": "Number of words in the text"
+      },
+      "charCount": {
+        "type": "number",
+        "description": "Number of characters in the text"
+      },
+      "vowelCount": {
+        "type": "number",
+        "description": "Number of vowels in the text"
+      },
+      "consonantCount": {
+        "type": "number",
+        "description": "Number of consonants in the text"
+      },
+      "averageWordLength": {
+        "type": "number",
+        "description": "Average word length"
+      },
+      "analysis": {
+        "type": "string",
+        "description": "Summary analysis"
+      }
+    },
+    "required": ["wordCount", "charCount", "vowelCount", "consonantCount", "averageWordLength", "analysis"]
+  }
+}

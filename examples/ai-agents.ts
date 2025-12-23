@@ -1,220 +1,192 @@
 /**
  * Example: Customer Support AI Agent
  * 
- * Shows off:
- * - Multi-turn conversations
+ * Shows how to use AIActor with:
  * - Tool calling (check order status, process refund)
- * - Durable state (conversation never lost!)
- * - Agent-to-agent communication
+ * - Conversation state management
+ * - LLM integration
  */
 
-import { AIAgent, type Tool, type LLMConfig } from '../src/ai'
-import type { ActorContext } from '../src/actor'
+import { AIActor } from '../src/actor/ai-actor'
+import type { Tool } from '../src/ai/tools/types'
+import type { LLMMessage } from '../src/ai/llm-provider'
+import type { ActorContext } from '../src/actor/journal'
 
 /**
- * Customer Support Agent
+ * Customer Support Agent with tool calling
  */
-class CustomerSupportAgent extends AIAgent {
+class CustomerSupportAgent extends AIActor {
   constructor(context: ActorContext, state?: any) {
     super(context, state)
 
-    // Configure for Azure OpenAI
-    this.configureLLM({
+    // Initialize LLM
+    this.initializeLLM({
       provider: 'azure-openai',
-      endpoint: process.env.AZURE_OPENAI_ENDPOINT,
-      apiKey: process.env.AZURE_OPENAI_KEY,
-      deploymentName: 'gpt-4',
+      endpoint: process.env.AZURE_OPENAI_ENDPOINT || 'https://your-endpoint.openai.azure.com',
+      apiKey: process.env.AZURE_OPENAI_KEY || 'your-key',
       model: 'gpt-4',
       temperature: 0.7,
     })
 
-    // Set system prompt
-    this.promptManager.register({
-      name: 'system',
-      template: `You are a helpful customer support agent for an e-commerce company.
-You can:
-- Check order status
-- Process refunds
-- Answer questions about products
-- Escalate complex issues to human agents
+    // Register available tools
+    this.registerTools([
+      this.createCheckOrderTool(),
+      this.createRefundTool(),
+      this.createEscalateTool(),
+    ])
+  }
 
-Be friendly, professional, and concise.`,
-      variables: [],
-    })
+  private createCheckOrderTool(): Tool {
+    return {
+      name: 'check_order_status',
+      description: 'Check the status of a customer order',
+      parameters: {
+        type: 'object',
+        properties: {
+          order_id: {
+            type: 'string',
+            description: 'The order ID to check',
+          },
+        },
+        required: ['order_id'],
+      },
+      execute: async (params: { order_id: string }) => {
+        // Simulate order lookup
+        console.log(`🔍 Checking order: ${params.order_id}`)
+        return {
+          order_id: params.order_id,
+          status: 'shipped',
+          tracking: 'TRACK123',
+          eta: '2025-12-25',
+        }
+      },
+    }
+  }
 
-    // Initialize with system prompt
-    if (!state?.memory) {
-      this.addToMemory('system', this.promptManager.render('system', {}))
+  private createRefundTool(): Tool {
+    return {
+      name: 'process_refund',
+      description: 'Process a refund for an order',
+      parameters: {
+        type: 'object',
+        properties: {
+          order_id: {
+            type: 'string',
+            description: 'The order ID to refund',
+          },
+          reason: {
+            type: 'string',
+            description: 'Reason for the refund',
+          },
+        },
+        required: ['order_id', 'reason'],
+      },
+      execute: async (params: { order_id: string; reason: string }) => {
+        // Simulate refund processing
+        console.log(`💰 Processing refund for order: ${params.order_id}`)
+        return {
+          success: true,
+          refund_id: `REF-${Date.now()}`,
+          amount: 99.99,
+          order_id: params.order_id,
+          reason: params.reason,
+        }
+      },
+    }
+  }
+
+  private createEscalateTool(): Tool {
+    return {
+      name: 'escalate_to_human',
+      description: 'Escalate the conversation to a human agent',
+      parameters: {
+        type: 'object',
+        properties: {
+          reason: {
+            type: 'string',
+            description: 'Why escalation is needed',
+          },
+        },
+        required: ['reason'],
+      },
+      execute: async (params: { reason: string }) => {
+        console.log(`🆘 Escalating to human: ${params.reason}`)
+        return {
+          escalated: true,
+          ticket_id: `TICKET-${Date.now()}`,
+          reason: params.reason,
+        }
+      },
     }
   }
 
   /**
-   * Define available tools
-   */
-  protected getTools(): Tool[] {
-    return [
-      {
-        name: 'check_order_status',
-        description: 'Check the status of a customer order',
-        parameters: {
-          type: 'object',
-          properties: {
-            order_id: {
-              type: 'string',
-              description: 'The order ID to check',
-            },
-          },
-          required: ['order_id'],
-        },
-      },
-      {
-        name: 'process_refund',
-        description: 'Process a refund for an order',
-        parameters: {
-          type: 'object',
-          properties: {
-            order_id: {
-              type: 'string',
-              description: 'The order ID to refund',
-            },
-            reason: {
-              type: 'string',
-              description: 'Reason for the refund',
-            },
-          },
-          required: ['order_id', 'reason'],
-        },
-      },
-      {
-        name: 'escalate_to_human',
-        description: 'Escalate the conversation to a human agent',
-        parameters: {
-          type: 'object',
-          properties: {
-            reason: {
-              type: 'string',
-              description: 'Why escalation is needed',
-            },
-          },
-          required: ['reason'],
-        },
-      },
-    ]
-  }
-
-  /**
-   * Main execution - handle customer message
+   * Handle customer message
    */
   async execute(input: { message: string }): Promise<any> {
-    // Get LLM response with tools
-    const response = await this.callLLM(input.message, this.getTools())
-
-    // Handle tool calls
-    if (response.tool_calls) {
-      const results = []
-      
-      for (const toolCall of response.tool_calls) {
-        // Execute the tool via WASM activity
-        const result = await this.executeTool(toolCall)
-        results.push(result)
-
-        // Special case: escalation
-        if (toolCall.name === 'escalate_to_human') {
-          // Send to human agent queue
-          await this.sendToAgent('human-agent-pool', {
-            customerId: this.context.actorId,
-            conversation: this.getConversationHistory(),
-            reason: toolCall.arguments.reason,
-          })
-        }
-      }
-
-      // Get final response after tool execution
-      const finalResponse = await this.callLLM()
-      
-      return {
-        response: finalResponse.content,
-        tool_results: results,
-        cost: response.cost + (finalResponse.cost || 0),
-        tokens: response.usage.total_tokens + finalResponse.usage.total_tokens,
-      }
+    // Get conversation history from state
+    const messages: LLMMessage[] = (this.state.messages as LLMMessage[]) || []
+    
+    // Add system prompt if first message
+    if (messages.length === 0) {
+      messages.push({
+        role: 'system',
+        content: `You are a helpful customer support agent for an e-commerce company.
+You can check order status, process refunds, and escalate to human agents.
+Be friendly, professional, and concise.`,
+      })
     }
-
-    return {
-      response: response.content,
-      cost: response.cost,
-      tokens: response.usage.total_tokens,
-    }
-  }
-}
-
-/**
- * Research Agent - with ReAct pattern!
- */
-class ResearchAgent extends AIAgent {
-  constructor(context: ActorContext, state?: any) {
-    super(context, state)
-
-    this.configureLLM({
-      provider: 'openai',
-      apiKey: process.env.OPENAI_API_KEY,
-      model: 'gpt-4',
-      temperature: 0.3, // Lower for more focused research
+    
+    // Add user message
+    messages.push({
+      role: 'user',
+      content: input.message,
     })
-  }
 
-  protected getTools(): Tool[] {
-    return [
-      {
-        name: 'search_web',
-        description: 'Search the web for information',
-        parameters: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', description: 'Search query' },
-          },
-          required: ['query'],
-        },
-      },
-      {
-        name: 'analyze_document',
-        description: 'Analyze a document or webpage',
-        parameters: {
-          type: 'object',
-          properties: {
-            url: { type: 'string', description: 'URL to analyze' },
-          },
-          required: ['url'],
-        },
-      },
-      {
-        name: 'save_finding',
-        description: 'Save an important finding to long-term memory',
-        parameters: {
-          type: 'object',
-          properties: {
-            finding: { type: 'string', description: 'The finding to save' },
-            importance: {
-              type: 'number',
-              description: 'Importance score 1-10',
-            },
-          },
-          required: ['finding'],
-        },
-      },
-    ]
-  }
-
-  async execute(input: { task: string }): Promise<any> {
-    // Use ReAct pattern for multi-step reasoning
-    const result = await this.react(input.task, this.getTools(), 10)
+    // Chat with tools available (returns final response string)
+    const responseContent = await this.chatWithTools(messages)
+    
+    // Add assistant response to history
+    messages.push({
+      role: 'assistant',
+      content: responseContent,
+    })
+    
+    // Update conversation state
+    this.updateState({ messages })
 
     return {
-      answer: result,
-      findings: this.memory.longTerm,
-      conversation: this.getConversationHistory(),
+      response: responseContent,
     }
   }
 }
 
-export { CustomerSupportAgent, ResearchAgent }
+// Example usage
+async function demo() {
+  const context: ActorContext = {
+    actorId: 'customer-support-001',
+    actorType: 'CustomerSupport',
+    correlationId: 'demo-123',
+  }
+
+  const agent = new CustomerSupportAgent(context)
+
+  // Customer asks about their order
+  const response1 = await agent.execute({
+    message: 'Hi, can you check the status of my order #12345?',
+  })
+  console.log('Agent:', response1.response)
+
+  // Customer requests a refund
+  const response2 = await agent.execute({
+    message: 'The product was damaged. Can you process a refund?',
+  })
+  console.log('Agent:', response2.response)
+}
+
+// Run demo if this file is executed directly
+if (require.main === module) {
+  demo().catch(console.error)
+}
+
+export { CustomerSupportAgent }

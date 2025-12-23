@@ -1,0 +1,299 @@
+{
+  "version": "1.0",
+  "actors": [
+    {
+      "name": "PDF Extractor",
+      "description": "Extracts text, images, and metadata from PDF documents with OCR support",
+      "type": "javascript",
+      "reference": "./actors/pdf-extractor.js",
+      "version": "2.1.0",
+      "author": "Jane Smith",
+      "owner": "Document Processing Team",
+      "policies": {
+        "authentication": "jwt",
+        "authorization": {
+          "roles": ["document-processor", "admin"],
+          "scopes": ["documents:read", "documents:write"]
+        },
+        "rateLimit": {
+          "requestsPerMinute": 60,
+          "requestsPerHour": 1000,
+          "burstSize": 10
+        },
+        "dataClassification": "confidential",
+        "piiHandling": true,
+        "dataRetention": "90d",
+        "egressAllowed": false
+      },
+      "permissions": {
+        "system": ["fs:read", "network:http"],
+        "storage": [
+          {
+            "type": "s3",
+            "operations": ["read"]
+          },
+          {
+            "type": "redis",
+            "operations": ["read", "write"]
+          }
+        ]
+      },
+      "aiContext": {
+        "purpose": "Extract structured data from PDF documents including text, tables, images, and metadata",
+        "usageGuidelines": "Use this actor when you need to:\n- Extract text from scanned PDFs (OCR enabled)\n- Parse structured data from forms\n- Extract tables and convert to JSON\n- Get document metadata (author, creation date, etc.)\n\nNot suitable for:\n- Password-protected PDFs\n- Corrupted files\n- Documents larger than 100MB",
+        "capabilities": [
+          {
+            "name": "extractText",
+            "description": "Extract all text content from PDF",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "includePageNumbers": {
+                  "type": "boolean"
+                },
+                "ocrLanguage": {
+                  "type": "string",
+                  "enum": ["eng", "fra", "deu", "spa"]
+                }
+              }
+            },
+            "returns": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "pageCount": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        ],
+        "examples": [
+          {
+            "scenario": "Extract text from invoice",
+            "input": {
+              "documentUrl": "s3://documents/invoice-2024.pdf",
+              "extractText": true,
+              "ocrLanguage": "eng"
+            },
+            "expectedOutput": {
+              "text": "Invoice #12345...",
+              "pageCount": 3
+            },
+            "explanation": "Extracts invoice text with OCR for scanned documents"
+          }
+        ],
+        "limitations": [
+          "Maximum file size: 100MB",
+          "OCR languages: English, French, German, Spanish only",
+          "Password-protected PDFs not supported"
+        ],
+        "bestPractices": [
+          "Pre-check file size before processing",
+          "Use appropriate OCR language for best results",
+          "Consider chunking large documents"
+        ],
+        "relatedActors": ["invoice-parser", "document-classifier"],
+        "estimatedCost": {
+          "unit": "api-calls",
+          "approximate": 1
+        }
+      },
+      "inputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["documentUrl"],
+        "properties": {
+          "documentUrl": {
+            "type": "string",
+            "description": "S3 URL or file path to PDF document",
+            "pattern": "^(s3://|https?://|file://|/).+"
+          },
+          "extractText": {
+            "type": "boolean",
+            "default": true
+          },
+          "extractImages": {
+            "type": "boolean",
+            "default": false
+          },
+          "extractTables": {
+            "type": "boolean",
+            "default": false
+          },
+          "ocrLanguage": {
+            "type": "string",
+            "enum": ["eng", "fra", "deu", "spa"],
+            "default": "eng"
+          }
+        },
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "required": ["success"],
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "string"
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pageNumber": {
+                  "type": "number"
+                },
+                "data": {
+                  "type": "string",
+                  "description": "Base64 encoded image"
+                }
+              }
+            }
+          },
+          "tables": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "author": {
+                "type": "string"
+              },
+              "createdDate": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "pageCount": {
+                "type": "number"
+              }
+            }
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "tags": ["document-processing", "pdf", "ocr", "extraction"],
+      "category": "data-processing",
+      "dependencies": [
+        {
+          "type": "package",
+          "name": "pdf-parse",
+          "version": "^1.1.1",
+          "optional": false
+        },
+        {
+          "type": "package",
+          "name": "tesseract.js",
+          "version": "^4.0.0",
+          "optional": false,
+          "purpose": "OCR engine"
+        }
+      ],
+      "configuration": {
+        "environmentVariables": [
+          {
+            "name": "AWS_REGION",
+            "description": "AWS region for S3 access",
+            "required": true,
+            "default": "us-east-1"
+          },
+          {
+            "name": "TESSERACT_LANG_PATH",
+            "description": "Path to Tesseract language data",
+            "required": false,
+            "default": "./tessdata"
+          }
+        ],
+        "runtime": {
+          "memoryLimit": "2GB",
+          "timeout": 120000,
+          "concurrency": 5
+        }
+      },
+      "performance": {
+        "latency": {
+          "p50": 2000,
+          "p95": 8000,
+          "p99": 15000,
+          "unit": "ms"
+        },
+        "throughput": {
+          "requestsPerSecond": 10,
+          "maxConcurrency": 5
+        },
+        "resources": {
+          "cpu": "2 cores",
+          "memory": "2GB",
+          "storage": "1GB"
+        }
+      },
+      "deployment": {
+        "targets": ["cloud", "local"],
+        "requirements": {
+          "nodeVersion": ">=18.0.0",
+          "platform": ["linux", "macos"]
+        },
+        "healthCheck": {
+          "endpoint": "/health",
+          "interval": 30,
+          "timeout": 5000,
+          "unhealthyThreshold": 3
+        },
+        "scaling": {
+          "min": 2,
+          "max": 10,
+          "metric": "queue-depth",
+          "target": 5
+        }
+      },
+      "documentation": {
+        "readme": "https://docs.example.com/actors/pdf-extractor",
+        "apiDocs": "https://api-docs.example.com/pdf-extractor",
+        "examples": "https://github.com/example/loom-actors/tree/main/examples/pdf"
+      },
+      "lifecycle": {
+        "stage": "stable",
+        "createdAt": "2024-01-15T10:00:00Z",
+        "updatedAt": "2024-12-20T15:30:00Z"
+      },
+      "observability": {
+        "metrics": [
+          {
+            "name": "pdf_pages_processed",
+            "type": "counter",
+            "description": "Total number of PDF pages processed",
+            "labels": ["status"]
+          }
+        ],
+        "tracing": {
+          "enabled": true,
+          "samplingRate": 0.1
+        },
+        "logging": {
+          "level": "info",
+          "structuredLogging": true,
+          "piiRedaction": true
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+[target.wasm32-unknown-unknown]
+# Enable getrandom features for WASM
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+
+[build]
+# Set default features for dependencies when targeting WASM
+target-applies-to-host = false

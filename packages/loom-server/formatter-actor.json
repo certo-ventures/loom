@@ -1,0 +1,50 @@
+{
+  "actorId": "text-formatter",
+  "actorType": "text-formatter",
+  "version": "1.0.0",
+  "displayName": "Text Formatter",
+  "description": "Formats text with various styles: uppercase, lowercase, title case, reverse, or emoji decoration",
+  "tags": ["text", "formatting", "transformation", "style"],
+  "isPublic": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "text": {
+        "type": "string",
+        "description": "Text to format"
+      },
+      "style": {
+        "type": "string",
+        "enum": ["uppercase", "lowercase", "title", "reverse", "emoji", "none"],
+        "description": "Formatting style to apply"
+      }
+    },
+    "required": ["text", "style"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "original": {
+        "type": "string",
+        "description": "Original input text"
+      },
+      "formatted": {
+        "type": "string",
+        "description": "Formatted output text"
+      },
+      "style": {
+        "type": "string",
+        "description": "Style that was applied"
+      },
+      "transformation": {
+        "type": "string",
+        "description": "Description of the transformation"
+      },
+      "length": {
+        "type": "number",
+        "description": "Length of formatted text"
+      }
+    },
+    "required": ["original", "formatted", "style", "transformation", "length"]
+  }
+}

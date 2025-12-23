@@ -1,0 +1,28 @@
+{
+  "targets": {
+    "greeter": {
+      "outFile": "build/greeter.wasm",
+      "textFile": "build/greeter.wat",
+      "sourceMap": true,
+      "optimize": true,
+      "debug": false
+    },
+    "analyzer": {
+      "outFile": "build/analyzer.wasm",
+      "textFile": "build/analyzer.wat",
+      "sourceMap": true,
+      "optimize": true,
+      "debug": false
+    },
+    "formatter": {
+      "outFile": "build/formatter.wasm",
+      "textFile": "build/formatter.wat",
+      "sourceMap": true,
+      "optimize": true,
+      "debug": false
+    }
+  },
+  "options": {
+    "bindings": "esm"
+  }
+}

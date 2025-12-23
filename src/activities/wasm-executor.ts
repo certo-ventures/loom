@@ -59,7 +59,7 @@ export class WasmActivityExecutor {
     const wasmBytes = await this.blobStore.download(definition.wasmBlobPath)
 
     // Compile WASM module
-    module = await WebAssembly.compile(wasmBytes)
+    module = await WebAssembly.compile(new Uint8Array(wasmBytes))
 
     // Cache it
     this.moduleCache.set(cacheKey, module)
@@ -79,7 +79,11 @@ export class WasmActivityExecutor {
     const imports = this.createImports(definition)
 
     // Instantiate WASM
-    const instance = await WebAssembly.instantiate(module, imports)
+    const wasmResult = await WebAssembly.instantiate(module, imports)
+    const instance =
+      'instance' in wasmResult
+        ? (wasmResult as { instance: WebAssembly.Instance }).instance
+        : (wasmResult as WebAssembly.Instance)
 
     // Get the exported execute function
     const execute = instance.exports.execute as CallableFunction

@@ -1,0 +1,8 @@
+{
+  "actorId": "simple",
+  "displayName": "Simple Actor",
+  "version": "1.0.0",
+  "description": "Returns 42",
+  "inputSchema": {"type": "object"},
+  "outputSchema": {"type": "object"}
+}

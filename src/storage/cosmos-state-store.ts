@@ -1,18 +1,23 @@
 import { CosmosClient, Database, Container } from '@azure/cosmos'
 import type { StateStore } from './state-store'
-import type { ActorState } from '../types'
+import type { ActorState, TraceContext } from '../types'
+import { TraceWriter } from '../observability/tracer'
 
 /**
  * CosmosDB StateStore - Production-ready actor state persistence
  */
 export class CosmosStateStore implements StateStore {
   private container!: Container
+  private tracer?: TraceWriter
 
   constructor(
     private client: CosmosClient,
     private databaseId: string,
-    private containerId: string
-  ) {}
+    private containerId: string,
+    tracer?: TraceWriter
+  ) {
+    this.tracer = tracer
+  }
 
   /**
    * Initialize - create database and container if needed
@@ -30,8 +35,31 @@ export class CosmosStateStore implements StateStore {
     this.container = container
   }
 
-  async save(actorId: string, state: ActorState): Promise<void> {
-    await this.container.items.upsert(state)
+  async save(actorId: string, state: ActorState, trace?: TraceContext): Promise<void> {
+    const response = await this.container.items.upsert(state)
+    
+    // Emit trace event with reference to document
+    if (this.tracer && trace) {
+      await this.tracer.emit({
+        trace_id: trace.trace_id,
+        span_id: TraceWriter.generateId(),
+        parent_span_id: trace.span_id,
+        event_type: 'cosmosdb:write',
+        timestamp: new Date().toISOString(),
+        refs: {
+          document: {
+            container: this.containerId,
+            id: state.id,
+            partition_key: state.partitionKey
+          }
+        },
+        metadata: {
+          operation: 'upsert',
+          actor_type: state.actorType,
+          ru_consumed: response.requestCharge
+        }
+      }).catch(() => {}) // Silent failure
+    }
   }
 
   async load(actorId: string): Promise<ActorState | null> {

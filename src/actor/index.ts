@@ -1,3 +1,6 @@
 export * from './journal'
 export * from './actor'
+export * from './actor-config'
 export * from './group-chat-actor'
+export * from './ai-actor'
+export * from './supervisor-actor'

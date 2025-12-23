@@ -1,0 +1,87 @@
+{
+  "checklistName": "FNMA 1004 Appraisal Review",
+  "version": "1.0",
+  "description": "Fannie Mae Form 1004 Uniform Residential Appraisal Report Review Checklist",
+  "items": [
+    {
+      "id": "property-identification",
+      "category": "Property Identification",
+      "criterion": "Property address and legal description are complete and accurate",
+      "description": "Verify that the property address, including street, city, state, and ZIP code, is complete and matches the legal description",
+      "importance": "critical",
+      "guidelines": "The property must be clearly identified with no ambiguity. Address must match title documents and legal records."
+    },
+    {
+      "id": "appraiser-certification",
+      "category": "Appraiser Credentials",
+      "criterion": "Appraiser is properly licensed and certified",
+      "description": "Confirm that the appraiser holds a valid license in the state where the property is located",
+      "importance": "critical",
+      "guidelines": "Appraiser must have valid state certification or license. License number must be provided and verifiable."
+    },
+    {
+      "id": "effective-date",
+      "category": "Report Timeliness",
+      "criterion": "Appraisal effective date is recent and appropriate",
+      "description": "The effective date of the appraisal should be recent (typically within 120 days)",
+      "importance": "high",
+      "guidelines": "Most lenders require appraisals completed within 120 days of loan closing. Older appraisals may require updates."
+    },
+    {
+      "id": "comparable-sales",
+      "category": "Market Analysis",
+      "criterion": "Three to six comparable sales are included and appropriate",
+      "description": "Verify that 3-6 comparable sales are provided, are recent (within 12 months), and are similar to subject property",
+      "importance": "critical",
+      "guidelines": "Comparables should be similar in size, age, condition, and location. Sales should be arms-length transactions within the past 12 months."
+    },
+    {
+      "id": "adjustments",
+      "category": "Valuation",
+      "criterion": "Adjustments to comparable sales are reasonable and explained",
+      "description": "All adjustments to comparable sales must be documented and fall within acceptable ranges",
+      "importance": "high",
+      "guidelines": "Adjustments should typically not exceed 10% per line item or 15% total net adjustment. All adjustments must be explained."
+    },
+    {
+      "id": "property-condition",
+      "category": "Property Assessment",
+      "criterion": "Property condition is adequately described",
+      "description": "The appraisal must include detailed description of property condition, including any defects or needed repairs",
+      "importance": "high",
+      "guidelines": "Appraiser must note overall condition (excellent, good, average, fair, poor) and identify any health/safety issues."
+    },
+    {
+      "id": "square-footage",
+      "category": "Property Measurements",
+      "criterion": "Square footage is accurately measured and documented",
+      "description": "Living area square footage must be calculated according to ANSI standards",
+      "importance": "high",
+      "guidelines": "Measurements should follow ANSI Z765 standards. Gross Living Area (GLA) must be clearly distinguished from total area."
+    },
+    {
+      "id": "market-conditions",
+      "category": "Market Analysis",
+      "criterion": "Current market conditions are analyzed and discussed",
+      "description": "Appraisal should include analysis of current market trends, supply/demand, and appreciation/depreciation",
+      "importance": "medium",
+      "guidelines": "Include discussion of days on market, price trends, inventory levels, and market forecasts for the area."
+    },
+    {
+      "id": "highest-best-use",
+      "category": "Property Analysis",
+      "criterion": "Highest and best use is appropriately determined",
+      "description": "The appraisal must conclude that the current use represents the highest and best use of the property",
+      "importance": "medium",
+      "guidelines": "Highest and best use analysis considers legal permissibility, physical possibility, financial feasibility, and maximum productivity."
+    },
+    {
+      "id": "reconciliation",
+      "category": "Valuation",
+      "criterion": "Final value reconciliation is logical and supported",
+      "description": "The final opinion of value must be reconciled and explained based on the approaches used",
+      "importance": "critical",
+      "guidelines": "Appraiser must explain the logic and reasoning for the final value conclusion, including weight given to each approach to value."
+    }
+  ]
+}

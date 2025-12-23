@@ -8,13 +8,23 @@ coverage/
 *.swp
 *.swo
 *~
-/
+
+# Build outputs
 dist/
-build/
-*.log
-.env
-.DS_Store
-*.wasm
+build/wasm/
+
+# WASM files (uncomment to check in compiled WASM)
+# *.wasm
+
+# Rust
+rust/target/
+rust/**/target/
+Cargo.lock
+
+# IDE
 .vscode/
+.idea/
+
+# Testing
 coverage/
 .nyc_output/

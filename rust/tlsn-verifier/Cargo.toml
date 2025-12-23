@@ -1,0 +1,39 @@
+[package]
+name = "tlsn-verifier"
+version = "0.1.0"
+edition = "2021"
+authors = ["Loom Team"]
+description = "TLS Notary proof verification for Loom actors"
+
+[lib]
+crate-type = ["cdylib", "rlib"]  # cdylib for WASM, rlib for tests
+
+[dependencies]
+# Workspace dependencies
+wasm-bindgen = { workspace = true }
+js-sys = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# TLS Notary
+tlsn-core = { workspace = true }
+tlsn-formats = { workspace = true }
+
+# WASM-specific dependencies
+console_error_panic_hook = { version = "0.1", optional = true }  # Better panic messages in WASM
+
+# Crypto
+sha2 = "0.10"
+hex = "0.4"
+
+# Explicit getrandom with WASM support for ALL versions used by dependencies
+getrandom_0_2 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_0_3 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[features]
+default = ["console_error_panic_hook"]

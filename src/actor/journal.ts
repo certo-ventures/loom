@@ -24,8 +24,10 @@ export interface Journal {
 export interface ActorContext {
   actorId: string
   actorType: string
-  correlationId: string
+  correlationId?: string
   parentActorId?: string
+  parentTraceId?: string
+  trace?: import('../types').TraceContext // Trace context for observability
   sharedMemory?: SharedMemory
 }
 

@@ -14,7 +14,7 @@
 import { Actor } from './actor'
 import type { ActorContext } from './journal'
 import type { StreamChunk } from '../streaming/types'
-import { LLMClient, type LLMConfig, type ConversationMessage as AIMessage } from '../ai'
+import { UnifiedLLM, type LLMConfig, type LLMMessage } from '../ai'
 
 /**
  * Message in conversation history
@@ -70,14 +70,14 @@ export interface GroupChatResult {
  * - Automatic context building
  */
 export class GroupChatActor extends Actor {
-  private coordinator?: LLMClient
+  private coordinator?: UnifiedLLM
 
   async execute(input: unknown): Promise<void> {
     const chatInput = input as GroupChatInput
     
     // Initialize AI coordinator if config provided
     if (chatInput.coordinatorConfig) {
-      this.coordinator = new LLMClient(chatInput.coordinatorConfig)
+      this.coordinator = new UnifiedLLM(chatInput.coordinatorConfig)
     }
     
     const result = await this.runGroupChat(chatInput)
@@ -94,7 +94,7 @@ export class GroupChatActor extends Actor {
     
     // Initialize AI coordinator if config provided
     if (chatInput.coordinatorConfig) {
-      this.coordinator = new LLMClient(chatInput.coordinatorConfig)
+      this.coordinator = new UnifiedLLM(chatInput.coordinatorConfig)
     }
     
     const conversationId = this.generateConversationId()

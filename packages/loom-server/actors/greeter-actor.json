@@ -1,0 +1,20 @@
+{
+  "actorId": "greeter",
+  "displayName": "Greeter Actor",
+  "version": "1.0.0",
+  "description": "Simple greeting actor",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": { "type": "string" }
+    },
+    "required": ["name"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "greeting": { "type": "string" }
+    },
+    "required": ["greeting"]
+  }
+}

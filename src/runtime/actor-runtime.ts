@@ -1,6 +1,7 @@
 import type { Actor, ActorContext } from '../actor'
 import type { StateStore, MessageQueue, LockManager } from '../storage'
-import type { ActorState } from '../types'
+import type { ActorState, TraceContext } from '../types'
+import { TraceWriter } from '../observability/tracer'
 
 /**
  * Factory function to create actor instances
@@ -14,12 +15,16 @@ export class ActorRuntime {
   private actorTypes = new Map<string, ActorFactory>()
   private activeActors = new Map<string, Actor>()
   private actorLocks = new Map<string, any>() // Track locks by actorId
+  private tracer?: TraceWriter
   
   constructor(
     private stateStore: StateStore,
     private messageQueue: MessageQueue,
-    private lockManager: LockManager
-  ) {}
+    private lockManager: LockManager,
+    tracer?: TraceWriter
+  ) {
+    this.tracer = tracer
+  }
 
   /**
    * Register an actor type with its factory
@@ -31,7 +36,7 @@ export class ActorRuntime {
   /**
    * Activate an actor - load state, acquire lock, instantiate
    */
-  async activateActor(actorId: string, actorType: string): Promise<Actor> {
+  async activateActor(actorId: string, actorType: string, contextOverrides?: Partial<ActorContext>): Promise<Actor> {
     // Check if already active
     const existing = this.activeActors.get(actorId)
     if (existing) {
@@ -60,10 +65,16 @@ export class ActorRuntime {
         actorType,
         correlationId: stored?.correlationId || actorId,
         parentActorId: stored?.metadata?.parentActorId as string | undefined,
+        ...contextOverrides, // Allow trace and other overrides
       }
 
-      // Instantiate actor with loaded state
+      // Instantiate actor with loaded state and tracer
       const actor = factory(context, stored?.state || undefined)
+      
+      // Inject tracer if available
+      if (this.tracer) {
+        (actor as any).observabilityTracer = this.tracer
+      }
 
       // Load journal if exists
       if (stored?.metadata?.journal) {
@@ -101,7 +112,7 @@ export class ActorRuntime {
       actorType: actor['context'].actorType,
       status: 'suspended',
       state: actor.getState(),
-      correlationId: actor['context'].correlationId,
+      correlationId: actor['context'].correlationId || actorId,
       createdAt: new Date().toISOString(),
       lastActivatedAt: new Date().toISOString(),
       metadata: {
@@ -110,7 +121,7 @@ export class ActorRuntime {
       },
     }
 
-    await this.stateStore.save(actorId, state)
+    await this.stateStore.save(actorId, state, actor['context'].trace)
 
     // Release lock
     const lock = this.actorLocks.get(actorId)
@@ -136,6 +147,7 @@ export class ActorRuntime {
       messageType: 'event',
       correlationId: message.correlationId || actorId,
       payload: message,
+      trace: message.trace || TraceWriter.createRootTrace(), // Use existing trace or create root
       metadata: {
         timestamp: new Date().toISOString(),
         priority: message.priority || 0,

@@ -1,4 +1,12 @@
 /**
+ * Trace context for distributed tracing
+ */
+export interface TraceContext {
+  trace_id: string
+  span_id: string
+}
+
+/**
  * Message represents any communication between actors or from external sources
  */
 export interface Message {
@@ -7,6 +15,7 @@ export interface Message {
   messageType: 'execute' | 'event' | 'activate' | 'resume' | 'activity_completed' | 'activity_failed' | 'retry' | 'timer'
   correlationId: string
   payload: Record<string, unknown>
+  trace: TraceContext // Trace context flows through all messages
   metadata: {
     timestamp: string
     sender?: string

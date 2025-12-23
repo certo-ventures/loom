@@ -2,8 +2,15 @@
  * Service Discovery - Find and route to actors! 🔍
  * 
  * Actor registry, type-based routing, load balancing
- * MINIMAL and POWERFUL!
+ * Event-driven with Redis Pub/Sub - NO POLLING!
  */
+
+import type { ActorEventBus, ActorLifecycleEvent } from './actor-lifecycle-events'
+import type { ActorMetadata } from './actor-metadata'
+
+// Export event types and metadata
+export * from './actor-lifecycle-events'
+export * from './actor-metadata'
 
 /**
  * Actor instance info in registry
@@ -15,7 +22,9 @@ export interface ActorRegistration {
   status: 'active' | 'idle' | 'busy'
   lastHeartbeat: string
   messageCount: number // For load balancing
-  metadata?: Record<string, any>
+  
+  /** Structured actor metadata (replaces unstructured metadata) */
+  metadata?: ActorMetadata
 }
 
 /**
@@ -46,6 +55,11 @@ export interface ActorRegistry {
    * Get all actors of a specific type
    */
   getByType(actorType: string): Promise<ActorRegistration[]>
+  
+  /**
+   * Get all actors (for monitoring/observability)
+   */
+  getAll(): Promise<ActorRegistration[]>
   
   /**
    * Update heartbeat
@@ -89,6 +103,10 @@ export class InMemoryActorRegistry implements ActorRegistry {
   async getByType(actorType: string): Promise<ActorRegistration[]> {
     return Array.from(this.registrations.values())
       .filter(r => r.actorType === actorType)
+  }
+
+  async getAll(): Promise<ActorRegistration[]> {
+    return Array.from(this.registrations.values())
   }
 
   async heartbeat(actorId: string): Promise<void> {
@@ -230,19 +248,21 @@ export class ActorRouter {
 }
 
 /**
- * Discovery Service - Combine registry + routing
+ * Discovery Service - Combine registry + routing + events
  */
 export class DiscoveryService {
   public readonly registry: ActorRegistry
   public readonly router: ActorRouter
+  private eventBus?: ActorEventBus
 
-  constructor(registry?: ActorRegistry) {
+  constructor(registry?: ActorRegistry, eventBus?: ActorEventBus) {
     this.registry = registry || new InMemoryActorRegistry()
     this.router = new ActorRouter(this.registry)
+    this.eventBus = eventBus
   }
 
   /**
-   * Register actor and start heartbeat
+   * Register actor and publish event
    */
   async registerActor(
     actorId: string,
@@ -257,15 +277,37 @@ export class DiscoveryService {
       status: 'idle',
       lastHeartbeat: new Date().toISOString(),
       messageCount: 0,
-      metadata,
+      metadata: metadata as ActorMetadata | undefined,
+    })
+
+    // Publish lifecycle event
+    await this.publishEvent({
+      type: 'actor:registered',
+      actorId,
+      actorType,
+      workerId,
+      timestamp: new Date().toISOString(),
+      data: metadata,
     })
   }
 
   /**
-   * Unregister actor
+   * Unregister actor and publish event
    */
   async unregisterActor(actorId: string): Promise<void> {
+    const registration = await this.registry.get(actorId)
     await this.registry.unregister(actorId)
+
+    // Publish lifecycle event
+    if (registration) {
+      await this.publishEvent({
+        type: 'actor:unregistered',
+        actorId,
+        actorType: registration.actorType,
+        workerId: registration.workerId,
+        timestamp: new Date().toISOString(),
+      })
+    }
   }
 
   /**
@@ -296,4 +338,28 @@ export class DiscoveryService {
   async cleanup(maxAgeSeconds: number = 300): Promise<number> {
     return this.registry.cleanup(maxAgeSeconds * 1000)
   }
+
+  /**
+   * Subscribe to actor lifecycle events
+   */
+  async subscribe(
+    handler: (event: ActorLifecycleEvent) => void | Promise<void>
+  ): Promise<() => Promise<void>> {
+    if (!this.eventBus) {
+      throw new Error('EventBus not configured')
+    }
+    return this.eventBus.subscribe(handler)
+  }
+
+  /**
+   * Publish an actor lifecycle event
+   */
+  private async publishEvent(event: ActorLifecycleEvent): Promise<void> {
+    if (this.eventBus) {
+      await this.eventBus.publish(event)
+    }
+  }
 }
+
+// Export config loader
+export * from './actor-config-loader'

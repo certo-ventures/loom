@@ -1,0 +1,41 @@
+{
+  "definition": {
+    "contentVersion": "1.0.0",
+    "parameters": {
+      "userName": {
+        "type": "string",
+        "defaultValue": "Loom User"
+      }
+    },
+    "actions": {
+      "greetUser": {
+        "type": "actor",
+        "actorType": "hello-world",
+        "inputs": {
+          "name": "@parameters('userName')"
+        }
+      },
+      "processGreeting": {
+        "type": "actor",
+        "actorType": "hello-world",
+        "runAfter": {
+          "greetUser": ["Succeeded"]
+        },
+        "inputs": {
+          "name": "@concat('Processed: ', actions('greetUser').outputs.greeting)"
+        }
+      }
+    },
+    "outputs": {
+      "finalResult": {
+        "type": "string",
+        "value": "@actions('processGreeting').outputs.greeting"
+      }
+    }
+  },
+  "inputs": {
+    "parameters": {
+      "userName": "World"
+    }
+  }
+}

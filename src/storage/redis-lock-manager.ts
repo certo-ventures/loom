@@ -1,3 +1,4 @@
+// @ts-ignore - redlock ESM type issue
 import Redlock from 'redlock'
 // @ts-ignore - Redlock has typing issues with ESM
 import type { Redis } from 'ioredis'

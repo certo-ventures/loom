@@ -1,0 +1,56 @@
+# Loom Runtime Configuration Example
+# This file demonstrates all available configuration options
+
+# Global Redis configuration (inherited by adapters unless overridden)
+redis:
+  host: localhost
+  port: 6379
+  password: # Optional password
+  db: 0
+  keyPrefix: loom:
+
+# Actor pool configuration
+actorPool:
+  maxSize: 100              # Maximum number of actors in pool
+  idleTimeoutMs: 300000     # Evict actors after 5 minutes idle
+  evictionPolicy: lru       # Eviction strategy: lru, lfu, or fifo
+  evictionCheckIntervalMs: 60000  # Check for evictions every minute
+
+# Message adapter configuration
+messageAdapter:
+  type: bullmq              # Options: bullmq, redis-pubsub, in-memory
+  queuePrefix: loom:queue:
+  redis:                    # Optional: Override global Redis
+    host: localhost
+    port: 6379
+    db: 1
+
+# State adapter configuration
+stateAdapter:
+  type: redis               # Options: redis, cosmos, in-memory
+  redis:                    # Used when type is redis
+    host: localhost
+    port: 6379
+    db: 2
+  # cosmos:                 # Used when type is cosmos
+  #   endpoint: https://...
+  #   key: your-key
+  #   database: loom
+  #   container: actor-state
+
+# Coordination adapter configuration (for distributed locking)
+coordinationAdapter:
+  type: redis               # Options: redis, cosmos, in-memory
+  lockTtlMs: 30000         # Lock expires after 30 seconds
+  renewIntervalMs: 10000   # Renew lock every 10 seconds
+  redis:
+    host: localhost
+    port: 6379
+    db: 3
+
+# Distributed tracing configuration
+tracing:
+  enabled: true
+  storeType: in-memory      # Options: in-memory, redis, cosmos
+  retentionMs: 86400000     # Keep traces for 24 hours
+  cleanupIntervalMs: 3600000  # Cleanup every hour

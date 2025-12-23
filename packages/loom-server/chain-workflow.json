@@ -1,0 +1,61 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2016-06-01/Microsoft.Logic.json",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "userName": {
+      "type": "string",
+      "defaultValue": "World"
+    }
+  },
+  "triggers": {},
+  "actions": {
+    "Step1_Greet": {
+      "type": "actor",
+      "inputs": {
+        "actorType": "greeter",
+        "input": {
+          "name": "@parameters('userName')"
+        }
+      }
+    },
+    "Step2_Analyze": {
+      "type": "actor",
+      "inputs": {
+        "actorType": "text-analyzer",
+        "input": {
+          "text": "@body('Step1_Greet').greeting"
+        }
+      },
+      "runAfter": {
+        "Step1_Greet": ["Succeeded"]
+      }
+    },
+    "Step3_Format": {
+      "type": "actor",
+      "inputs": {
+        "actorType": "text-formatter",
+        "input": {
+          "text": "@body('Step2_Analyze').analysis",
+          "style": "emoji"
+        }
+      },
+      "runAfter": {
+        "Step2_Analyze": ["Succeeded"]
+      }
+    }
+  },
+  "outputs": {
+    "greeting": {
+      "type": "object",
+      "value": "@body('Step1_Greet')"
+    },
+    "analysis": {
+      "type": "object",
+      "value": "@body('Step2_Analyze')"
+    },
+    "finalResult": {
+      "type": "object",
+      "value": "@body('Step3_Format')"
+    }
+  }
+}

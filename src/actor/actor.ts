@@ -1,5 +1,10 @@
 import type { Journal, JournalEntry, ActorContext } from './journal'
 import type { StreamChunk } from '../streaming/types'
+import { SimpleStateImpl, type SimpleState } from '../state'
+import type { ActorInfrastructureConfig } from './actor-config'
+import { mergeActorConfig } from './actor-config'
+import { Tracer } from '../tracing'
+import { TraceWriter } from '../observability/tracer'
 
 /**
  * Base Actor class - all actors extend this
@@ -9,14 +14,64 @@ export abstract class Actor {
   protected state: Record<string, unknown>
   protected context: ActorContext
   
+  /**
+   * Simple key-value state API (Motia-inspired)
+   * Use this for common cases: state.get(key), state.set(key, value)
+   * Use updateState() for complex updates or when you need full control
+   */
+  protected readonly simpleState: SimpleState
+  
+  /**
+   * Infrastructure configuration for this actor
+   * Override in subclass to customize timeout, retry policy, etc.
+   */
+  static config?: ActorInfrastructureConfig
+  
+  /**
+   * Optional tracer for distributed tracing
+   */
+  protected tracer?: Tracer
+  
+  /**
+   * Optional observability tracer (reference-based)
+   */
+  private observabilityTracer?: TraceWriter
+  
   private journal: Journal
   private isReplaying: boolean = false
   private activityCounter: number = 0
 
-  constructor(context: ActorContext, initialState?: Record<string, unknown>) {
+  constructor(context: ActorContext, initialState?: Record<string, unknown>, observabilityTracer?: TraceWriter) {
     this.context = context
     this.state = initialState ?? this.getDefaultState()
     this.journal = { entries: [], cursor: 0 }
+    this.observabilityTracer = observabilityTracer
+    
+    // Initialize simple state facade
+    this.simpleState = new SimpleStateImpl(
+      () => this.state,
+      (newState) => {
+        this.state = newState
+        if (!this.isReplaying) {
+          this.journal.entries.push({
+            type: 'state_updated',
+            state: this.state,
+          })
+        }
+      }
+    )
+    
+    // Initialize tracer if correlationId provided
+    if (context.correlationId) {
+      this.tracer = new Tracer(
+        context.correlationId,
+        'actor.execute',
+        context.actorId,
+        this.constructor.name,
+        context.parentTraceId
+      )
+      this.tracer.recordEvent('actor.created', { initialState })
+    }
   }
 
   /**
@@ -24,6 +79,34 @@ export abstract class Actor {
    */
   protected getDefaultState(): Record<string, unknown> {
     return {}
+  }
+  
+  /**
+   * Get the infrastructure configuration for this actor
+   * Merges actor-specific config with defaults
+   */
+  getInfrastructureConfig() {
+    return mergeActorConfig((this.constructor as typeof Actor).config)
+  }
+
+  /**
+   * Get configuration using hierarchical resolution
+   * Automatically uses actor's context (clientId, tenantId, environment)
+   */
+  protected async getConfig<T = any>(configKey: string): Promise<T | null> {
+    const resolver = (this.context as any).configResolver
+    if (!resolver) {
+      throw new Error('ConfigResolver not provided in actor context. Add configResolver to runtime.')
+    }
+    
+    const value = await resolver.getWithContext(configKey, {
+      clientId: (this.context as any).clientId,
+      tenantId: (this.context as any).tenantId,
+      environment: (this.context as any).environment,
+      actorId: this.context.actorId,
+    })
+    
+    return value as T | null
   }
 
   /**
@@ -55,10 +138,36 @@ export abstract class Actor {
     this.state = { ...this.state, ...updates }
     
     if (!this.isReplaying) {
+      const entryIndex = this.journal.entries.length
       this.journal.entries.push({
         type: 'state_updated',
         state: this.state,
       })
+      
+      // Trace state update (legacy tracer)
+      this.tracer?.stateUpdated(updates)
+      
+      // Emit observability trace event with reference to journal entry
+      if (this.observabilityTracer && this.context.trace) {
+        this.observabilityTracer.emit({
+          trace_id: this.context.trace.trace_id,
+          span_id: TraceWriter.generateId(),
+          parent_span_id: this.context.trace.span_id,
+          event_type: 'actor:state_changed',
+          timestamp: new Date().toISOString(),
+          refs: {
+            journal_entry: {
+              actor_id: this.context.actorId,
+              entry_index: entryIndex,
+              entry_type: 'state_updated'
+            }
+          },
+          metadata: {
+            actor_type: this.constructor.name,
+            changed_keys: Object.keys(updates)
+          }
+        }).catch(() => {}) // Silent failure - don't break actor execution
+      }
     }
   }
 
@@ -107,6 +216,9 @@ export abstract class Actor {
       name,
       input,
     })
+    
+    // Trace activity scheduling
+    this.tracer?.activityScheduled(name, input)
 
     // Execution will be handled by runtime
     // For now, throw to indicate we need to suspend
@@ -126,9 +238,32 @@ export abstract class Actor {
         actorType,
         input,
       })
+      
+      // Trace message sent to child
+      this.tracer?.messageSent(childId, { actorType, input })
     }
 
     return childId
+  }
+  
+  /**
+   * Send a message to another actor
+   * Use this to trace inter-actor communication
+   */
+  protected sendMessage(targetActorId: string, message: unknown): void {
+    if (!this.isReplaying) {
+      this.tracer?.messageSent(targetActorId, message)
+    }
+  }
+  
+  /**
+   * Record that a message was received
+   * Call this at the start of execute() if needed
+   */
+  protected recordMessageReceived(sourceActorId: string, message: unknown): void {
+    if (!this.isReplaying) {
+      this.tracer?.messageReceived(sourceActorId, message)
+    }
   }
 
   /**
@@ -180,6 +315,9 @@ export abstract class Actor {
       eventType,
       data: eventData,
     })
+    
+    // Trace journal entry
+    this.tracer?.journalEntry('event_received', { eventType, data: eventData })
 
     // Replay from beginning
     await this.replay()
@@ -194,6 +332,9 @@ export abstract class Actor {
       activityId,
       result,
     })
+    
+    // Trace activity completion
+    this.tracer?.activityCompleted(activityId, result)
 
     await this.replay()
   }
@@ -207,6 +348,9 @@ export abstract class Actor {
       activityId,
       error,
     })
+    
+    // Trace activity failure
+    this.tracer?.activityFailed(activityId, new Error(error))
 
     await this.replay()
   }
@@ -256,6 +400,31 @@ export abstract class Actor {
    */
   getState(): Record<string, unknown> {
     return this.state
+  }
+  
+  /**
+   * Get current tracer (for accessing trace data)
+   */
+  getTracer(): Tracer | undefined {
+    return this.tracer
+  }
+  
+  /**
+   * Execute with automatic trace capture
+   * Called by runtime to wrap execute() with tracing
+   */
+  async executeWithTracing(input: unknown): Promise<void> {
+    try {
+      this.tracer?.start()
+      await this.execute(input)
+      this.tracer?.end()
+    } catch (error) {
+      // Record error in trace
+      if (error instanceof Error && !(error instanceof ActivitySuspendError) && !(error instanceof EventSuspendError)) {
+        this.tracer?.error(error)
+      }
+      throw error
+    }
   }
 }
 

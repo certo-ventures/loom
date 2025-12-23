@@ -1,0 +1,26 @@
+# Test configuration for demos
+# Uses in-memory adapters for easy testing
+
+redis:
+  host: localhost
+  port: 6379
+  db: 10
+
+actorPool:
+  maxSize: 50
+  idleTimeoutMs: 120000  # 2 minutes
+
+messageAdapter:
+  type: in-memory
+
+stateAdapter:
+  type: in-memory
+
+coordinationAdapter:
+  type: in-memory
+  lockTtlMs: 10000
+
+tracing:
+  enabled: true
+  storeType: in-memory
+  retentionMs: 3600000  # 1 hour

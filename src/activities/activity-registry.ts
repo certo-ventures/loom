@@ -1,4 +1,4 @@
-import type { ActivityDefinition } from './types'
+import type { ActivityDefinition } from './wasm-executor'
 
 /**
  * Activity Registry - Maps activity names to their definitions

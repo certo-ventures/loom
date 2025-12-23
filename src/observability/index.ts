@@ -144,3 +144,8 @@ export class Observability {
 export const obs = Observability.getInstance()
 export const logger = obs.logger
 export const metrics = obs.metrics
+
+// Health check and monitoring
+export * from './types'
+export * from './collector'
+export * from './endpoints'

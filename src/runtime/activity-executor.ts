@@ -5,8 +5,9 @@ import { WasmActivityExecutor } from '../activities/wasm-executor'
 import type { ActivitySuspendError } from '../actor'
 import { RetryHandler } from './retry-handler'
 import { DEFAULT_RETRY_POLICIES } from '../types'
-import type { RetryPolicy } from '../types'
+import type { RetryPolicy, TraceContext } from '../types'
 import { logger, metrics } from '../observability'
+import { TraceWriter } from '../observability/tracer'
 
 /**
  * ActivityExecutor - Executes activities when actors suspend
@@ -40,7 +41,8 @@ export class ActivityExecutor {
     actorId: string,
     actorType: string,
     error: ActivitySuspendError,
-    retryCount: number = 0
+    retryCount: number = 0,
+    trace?: TraceContext
   ): Promise<void> {
     const { activityId, activityName, input } = error
     const startTime = Date.now()
@@ -80,6 +82,7 @@ export class ActivityExecutor {
         actorId,
         messageType: 'activity_completed',
         correlationId: actorId,
+        trace: trace || TraceWriter.createRootTrace(), // Propagate or create trace
         payload: {
           activityId,
           result,
@@ -108,6 +111,7 @@ export class ActivityExecutor {
         actorId,
         messageType: 'activity_failed',
         correlationId: actorId,
+        trace: trace || TraceWriter.createRootTrace(), // Propagate or create trace
         payload: {
           activityId,
           error: executionError.message || String(executionError),

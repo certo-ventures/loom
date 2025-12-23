@@ -1,0 +1,43 @@
+UNIFORM RESIDENTIAL APPRAISAL REPORT
+
+PROPERTY ADDRESS: 123 Main Street
+CITY: Springfield
+STATE: IL
+ZIP CODE: 62701
+
+APPRAISER: John Smith
+LICENSE #: IL-12345
+EFFECTIVE DATE: November 15, 2024
+
+PROPERTY DESCRIPTION:
+Property Type: Single Family Residence
+Year Built: 2015
+Gross Living Area: 2,400 sq ft
+Lot Size: 0.25 acres (10,890 sq ft)
+Condition: Good
+Quality: Good
+
+OPINION OF VALUE: $425,000
+
+COMPARABLE SALES:
+
+Comparable #1:
+Address: 125 Main Street, Springfield, IL 62701
+Sale Price: $430,000
+Sale Date: September 1, 2024
+Gross Living Area: 2,450 sq ft
+Adjustments: -$5,000 (size adjustment)
+
+Comparable #2:
+Address: 789 Oak Avenue, Springfield, IL 62702
+Sale Price: $418,000
+Sale Date: August 15, 2024
+Gross Living Area: 2,350 sq ft
+Adjustments: +$7,000 (location adjustment)
+
+Comparable #3:
+Address: 456 Elm Street, Springfield, IL 62701
+Sale Price: $435,000
+Sale Date: October 1, 2024
+Gross Living Area: 2,500 sq ft
+Adjustments: -$10,000 (size and condition adjustments)

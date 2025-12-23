@@ -1,0 +1,37 @@
+{
+  "actorId": "greeter",
+  "actorType": "greeter",
+  "version": "1.0.0",
+  "displayName": "Greeter",
+  "description": "Greets users with a personalized welcome message",
+  "tags": ["greeting", "hello", "welcome"],
+  "isPublic": true,
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Name of the person to greet"
+      }
+    },
+    "required": ["name"]
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "greeting": {
+        "type": "string",
+        "description": "The greeting message"
+      },
+      "timestamp": {
+        "type": "number",
+        "description": "Unix timestamp of when greeting was generated"
+      },
+      "length": {
+        "type": "number",
+        "description": "Length of the greeting message"
+      }
+    },
+    "required": ["greeting", "timestamp", "length"]
+  }
+}

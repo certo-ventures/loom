@@ -1,4 +1,4 @@
-import type { ActorState } from '../types'
+import type { ActorState, TraceContext } from '../types'
 
 /**
  * StateStore - Persist and retrieve actor state
@@ -6,8 +6,9 @@ import type { ActorState } from '../types'
 export interface StateStore {
   /**
    * Save actor state
+   * @param trace - Optional trace context for observability
    */
-  save(actorId: string, state: ActorState): Promise<void>
+  save(actorId: string, state: ActorState, trace?: TraceContext): Promise<void>
 
   /**
    * Load actor state by ID

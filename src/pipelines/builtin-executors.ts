@@ -1,0 +1,345 @@
+/**
+ * Built-in Stage Executors
+ * 
+ * Standard orchestration patterns: scatter, gather, single, map-reduce, broadcast, etc.
+ */
+
+import jp from 'jsonpath'
+import {
+  StageExecutor,
+  BaseStageExecutor,
+  ExecutionContext,
+  ExecutionResult
+} from './stage-executor'
+import { StageDefinition } from './pipeline-dsl'
+
+// ============================================================================
+// Single Executor - Execute one actor
+// ============================================================================
+
+export class SingleExecutor extends BaseStageExecutor {
+  getName() { return 'single' }
+  
+  validate(stage: StageDefinition): boolean {
+    return !!stage.actor && !!stage.input
+  }
+  
+  async execute(context: ExecutionContext): Promise<ExecutionResult> {
+    const { pipelineId, stage, pipelineContext, messageQueue } = context
+    
+    const input = this.resolveInput(stage.input, pipelineContext)
+    
+    const message = this.createMessage(
+      pipelineId,
+      stage.name,
+      stage.actor,
+      0,
+      input
+    )
+    
+    await messageQueue.enqueue(`actor-${stage.actor}`, message)
+    
+    console.log(`   🎯 Single actor: ${stage.actor}`)
+    console.log(`   ✅ Message enqueued to: actor-${stage.actor}`)
+    
+    return { expectedTasks: 1 }
+  }
+}
+
+// ============================================================================
+// Scatter Executor - Fan-out over array (parallel)
+// ============================================================================
+
+export interface ScatterConfig {
+  maxParallel?: number  // Limit concurrent tasks (default: unlimited)
+  batchSize?: number    // Process in batches
+}
+
+export class ScatterExecutor extends BaseStageExecutor {
+  getName() { return 'scatter' }
+  
+  validate(stage: StageDefinition): boolean {
+    return !!stage.scatter && !!stage.scatter.input && !!stage.scatter.as
+  }
+  
+  async execute(context: ExecutionContext): Promise<ExecutionResult> {
+    const { pipelineId, stage, pipelineContext, messageQueue } = context
+    
+    if (!stage.scatter) {
+      throw new Error(`Stage ${stage.name} missing scatter config`)
+    }
+    
+    const config = this.getConfig<ScatterConfig>(stage)
+    
+    // Extract items using JSONPath
+    let items = jp.query(pipelineContext, stage.scatter.input)
+    
+    if (items.length > 0 && Array.isArray(items[0])) {
+      items = items.flat()
+    }
+    
+    console.log(`   🔀 SCATTER: Fan-out over ${items.length} items`)
+    if (config.maxParallel) {
+      console.log(`      Max parallel: ${config.maxParallel}`)
+    }
+    
+    // Enqueue messages for each item
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      
+      // Create scoped context with scatter variable
+      const scopedContext = {
+        ...pipelineContext,
+        [stage.scatter.as]: item
+      }
+      
+      const input = this.resolveInput(stage.input, scopedContext)
+      
+      const message = this.createMessage(
+        pipelineId,
+        stage.name,
+        stage.actor,
+        i,
+        input
+      )
+      
+      await messageQueue.enqueue(`actor-${stage.actor}`, message)
+    }
+    
+    console.log(`   ✅ ${items.length} messages enqueued to: actor-${stage.actor}`)
+    
+    return { expectedTasks: items.length }
+  }
+}
+
+// ============================================================================
+// Gather Executor - Barrier sync + optional grouping
+// ============================================================================
+
+export interface GatherConfig {
+  timeout?: number      // Max wait time (ms)
+  minResults?: number   // Minimum results required
+}
+
+export class GatherExecutor extends BaseStageExecutor {
+  getName() { return 'gather' }
+  
+  validate(stage: StageDefinition): boolean {
+    return !!stage.gather && !!stage.gather.stage
+  }
+  
+  async execute(context: ExecutionContext): Promise<ExecutionResult> {
+    const { pipelineId, stage, pipelineContext, messageQueue } = context
+    
+    if (!stage.gather) {
+      throw new Error(`Stage ${stage.name} missing gather config`)
+    }
+    
+    const config = this.getConfig<GatherConfig>(stage)
+    
+    console.log(`   🎯 GATHER (BARRIER): Collecting from stage ${stage.gather.stage}`)
+    
+    // Get outputs from target stage (barrier already enforced by orchestrator)
+    const targetOutputs = pipelineContext.stages[stage.gather.stage] || []
+    
+    console.log(`   📊 Collected ${targetOutputs.length} outputs`)
+    
+    // Group if specified
+    if (stage.gather.groupBy) {
+      const groups = new Map<string, any[]>()
+      
+      for (const item of targetOutputs) {
+        const groupKey = jp.value(item, stage.gather.groupBy)
+        if (!groups.has(groupKey)) {
+          groups.set(groupKey, [])
+        }
+        groups.get(groupKey)!.push(item)
+      }
+      
+      console.log(`   📦 Grouped into ${groups.size} groups by ${stage.gather.groupBy}`)
+      
+      // Enqueue one message per group
+      let groupIndex = 0
+      for (const [key, items] of groups.entries()) {
+        const scopedContext = {
+          ...pipelineContext,
+          group: { key, items }
+        }
+        
+        const input = this.resolveInput(stage.input, scopedContext)
+        
+        const message = this.createMessage(
+          pipelineId,
+          stage.name,
+          stage.actor,
+          groupIndex,
+          input,
+          { groupKey: key }
+        )
+        
+        await messageQueue.enqueue(`actor-${stage.actor}`, message)
+        console.log(`      └─ Group "${key}": ${items.length} items`)
+        groupIndex++
+      }
+      
+      console.log(`   ✅ ${groups.size} group messages enqueued to: actor-${stage.actor}`)
+      
+      return { expectedTasks: groups.size }
+    } else {
+      // No grouping - single consolidation with all items
+      const input = this.resolveInput(stage.input, {
+        ...pipelineContext,
+        items: targetOutputs
+      })
+      
+      const message = this.createMessage(
+        pipelineId,
+        stage.name,
+        stage.actor,
+        0,
+        input
+      )
+      
+      await messageQueue.enqueue(`actor-${stage.actor}`, message)
+      
+      console.log(`   ✅ Single consolidation message enqueued`)
+      
+      return { expectedTasks: 1 }
+    }
+  }
+}
+
+// ============================================================================
+// Broadcast Executor - Send same input to multiple actors
+// ============================================================================
+
+export interface BroadcastConfig {
+  actors: string[]      // List of actor types to broadcast to
+  waitForAll?: boolean  // Wait for all to complete (default: true)
+}
+
+export class BroadcastExecutor extends BaseStageExecutor {
+  getName() { return 'broadcast' }
+  
+  validate(stage: StageDefinition): boolean {
+    const config = this.getConfig<BroadcastConfig>(stage)
+    return config.actors && config.actors.length > 0
+  }
+  
+  async execute(context: ExecutionContext): Promise<ExecutionResult> {
+    const { pipelineId, stage, pipelineContext, messageQueue } = context
+    const config = this.getConfig<BroadcastConfig>(stage)
+    
+    const input = this.resolveInput(stage.input, pipelineContext)
+    
+    console.log(`   📢 BROADCAST: Sending to ${config.actors.length} actors`)
+    
+    for (let i = 0; i < config.actors.length; i++) {
+      const actorType = config.actors[i]
+      
+      const message = this.createMessage(
+        pipelineId,
+        stage.name,
+        actorType,
+        i,
+        input
+      )
+      
+      await messageQueue.enqueue(`actor-${actorType}`, message)
+      console.log(`      └─ ${actorType}`)
+    }
+    
+    console.log(`   ✅ Broadcast complete`)
+    
+    return { expectedTasks: config.waitForAll !== false ? config.actors.length : 0 }
+  }
+}
+
+// ============================================================================
+// Map-Reduce Executor - Scatter + Gather in one
+// ============================================================================
+
+export interface MapReduceConfig {
+  mapActor: string      // Actor for map phase
+  reduceActor: string   // Actor for reduce phase
+  combineBy?: string    // JSONPath for grouping (optional)
+}
+
+export class MapReduceExecutor extends BaseStageExecutor {
+  getName() { return 'map-reduce' }
+  
+  validate(stage: StageDefinition): boolean {
+    const config = this.getConfig<MapReduceConfig>(stage)
+    return !!config.mapActor && !!config.reduceActor
+  }
+  
+  async execute(context: ExecutionContext): Promise<ExecutionResult> {
+    const { pipelineId, stage, pipelineContext, messageQueue } = context
+    const config = this.getConfig<MapReduceConfig>(stage)
+    
+    // This is a compound executor - would need orchestrator support
+    // For now, just demonstrate the concept
+    
+    console.log(`   🗺️  MAP-REDUCE: Map with ${config.mapActor}, Reduce with ${config.reduceActor}`)
+    
+    // In real implementation, this would:
+    // 1. Execute map phase (scatter over input with mapActor)
+    // 2. Wait for all map results (barrier)
+    // 3. Group results if combineBy specified
+    // 4. Execute reduce phase with grouped results
+    
+    throw new Error('Map-Reduce executor requires multi-stage support')
+  }
+}
+
+// ============================================================================
+// Fork-Join Executor - Parallel branches that rejoin
+// ============================================================================
+
+export interface ForkJoinConfig {
+  branches: Array<{
+    name: string
+    actor: string
+    input?: Record<string, string>
+  }>
+}
+
+export class ForkJoinExecutor extends BaseStageExecutor {
+  getName() { return 'fork-join' }
+  
+  validate(stage: StageDefinition): boolean {
+    const config = this.getConfig<ForkJoinConfig>(stage)
+    return config.branches && config.branches.length > 0
+  }
+  
+  async execute(context: ExecutionContext): Promise<ExecutionResult> {
+    const { pipelineId, stage, pipelineContext, messageQueue } = context
+    const config = this.getConfig<ForkJoinConfig>(stage)
+    
+    console.log(`   🔀 FORK-JOIN: ${config.branches.length} parallel branches`)
+    
+    for (let i = 0; i < config.branches.length; i++) {
+      const branch = config.branches[i]
+      
+      const input = branch.input 
+        ? this.resolveInput(branch.input, pipelineContext)
+        : this.resolveInput(stage.input, pipelineContext)
+      
+      const message = this.createMessage(
+        pipelineId,
+        stage.name,
+        branch.actor,
+        i,
+        input,
+        { branchName: branch.name }
+      )
+      
+      await messageQueue.enqueue(`actor-${branch.actor}`, message)
+      console.log(`      └─ Branch "${branch.name}": ${branch.actor}`)
+    }
+    
+    console.log(`   ✅ All branches forked`)
+    
+    return { expectedTasks: config.branches.length }
+  }
+}

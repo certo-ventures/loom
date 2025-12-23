@@ -1,0 +1,15 @@
+{
+  "actorId": "hello",
+  "displayName": "Hello World Actor",
+  "version": "1.0.0",
+  "description": "Returns Hello World",
+  "inputSchema": {
+    "type": "object"
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "message": { "type": "string" }
+    }
+  }
+}
