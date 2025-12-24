@@ -44,6 +44,13 @@ export interface ActorInfrastructureConfig {
   retryPolicy?: RetryPolicy
   
   /**
+   * Idempotency TTL in seconds
+   * How long to remember processed idempotency keys
+   * Default: 86400 (24 hours)
+   */
+  idempotencyTtl?: number
+  
+  /**
    * Message ordering guarantee
    * - 'fifo': Strict first-in-first-out ordering (slower)
    * - 'standard': Best-effort ordering (faster)
@@ -87,6 +94,7 @@ export const DEFAULT_ACTOR_CONFIG: Required<ActorInfrastructureConfig> = {
     maxDelayMs: 60000,
     multiplier: 2,
   },
+  idempotencyTtl: 86400,
   messageOrdering: 'standard',
   evictionPriority: 'medium',
   deadLetterQueue: true,
@@ -112,6 +120,7 @@ export function mergeActorConfig(
       maxDelayMs: config.retryPolicy?.maxDelayMs ?? DEFAULT_ACTOR_CONFIG.retryPolicy.maxDelayMs,
       multiplier: config.retryPolicy?.multiplier ?? DEFAULT_ACTOR_CONFIG.retryPolicy.multiplier,
     },
+    idempotencyTtl: config.idempotencyTtl ?? DEFAULT_ACTOR_CONFIG.idempotencyTtl,
     messageOrdering: config.messageOrdering ?? DEFAULT_ACTOR_CONFIG.messageOrdering,
     evictionPriority: config.evictionPriority ?? DEFAULT_ACTOR_CONFIG.evictionPriority,
     deadLetterQueue: config.deadLetterQueue ?? DEFAULT_ACTOR_CONFIG.deadLetterQueue,

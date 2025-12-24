@@ -30,6 +30,10 @@ export interface DataReference {
     container: string
     blob_name: string
   }
+  idempotency?: {
+    key: string
+    [key: string]: any
+  }
 }
 
 /**

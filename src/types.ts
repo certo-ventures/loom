@@ -16,6 +16,7 @@ export interface Message {
   correlationId: string
   payload: Record<string, unknown>
   trace: TraceContext // Trace context flows through all messages
+  idempotencyKey?: string // For exactly-once processing (prevents duplicate execution)
   metadata: {
     timestamp: string
     sender?: string

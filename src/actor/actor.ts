@@ -5,6 +5,7 @@ import type { ActorInfrastructureConfig } from './actor-config'
 import { mergeActorConfig } from './actor-config'
 import { Tracer } from '../tracing'
 import { TraceWriter } from '../observability/tracer'
+import type { IdempotencyStore, IdempotencyRecord } from '../storage/idempotency-store'
 
 /**
  * Base Actor class - all actors extend this
@@ -37,15 +38,26 @@ export abstract class Actor {
    */
   private observabilityTracer?: TraceWriter
   
+  /**
+   * Optional idempotency store for exactly-once semantics
+   */
+  private idempotencyStore?: IdempotencyStore
+  
   private journal: Journal
   private isReplaying: boolean = false
   private activityCounter: number = 0
 
-  constructor(context: ActorContext, initialState?: Record<string, unknown>, observabilityTracer?: TraceWriter) {
+  constructor(
+    context: ActorContext, 
+    initialState?: Record<string, unknown>, 
+    observabilityTracer?: TraceWriter,
+    idempotencyStore?: IdempotencyStore
+  ) {
     this.context = context
     this.state = initialState ?? this.getDefaultState()
     this.journal = { entries: [], cursor: 0 }
     this.observabilityTracer = observabilityTracer
+    this.idempotencyStore = idempotencyStore
     
     // Initialize simple state facade
     this.simpleState = new SimpleStateImpl(
@@ -407,6 +419,102 @@ export abstract class Actor {
    */
   getTracer(): Tracer | undefined {
     return this.tracer
+  }
+  
+  /**
+   * Check if a message with idempotency key was already processed
+   * @returns Cached result if found, undefined if new
+   */
+  protected async checkIdempotency(idempotencyKey: string): Promise<IdempotencyRecord | undefined> {
+    if (!this.idempotencyStore) {
+      return undefined
+    }
+    
+    try {
+      const record = await this.idempotencyStore.get(idempotencyKey)
+      
+      if (record && this.observabilityTracer && this.context.trace) {
+        // Emit deduplication event
+        this.observabilityTracer.emit({
+          trace_id: this.context.trace.trace_id,
+          span_id: TraceWriter.generateId(),
+          parent_span_id: this.context.trace.span_id,
+          event_type: 'actor:message_deduplicated',
+          timestamp: new Date().toISOString(),
+          refs: {
+            idempotency: {
+              key: idempotencyKey,
+              original_execution: record.executedAt
+            }
+          },
+          metadata: {
+            actor_id: this.context.actorId,
+            actor_type: this.constructor.name
+          }
+        }).catch(() => {}) // Silent failure
+      }
+      
+      return record
+    } catch (error) {
+      // Log error but don't fail actor execution
+      console.error(`Idempotency check failed for key ${idempotencyKey}:`, error)
+      return undefined
+    }
+  }
+  
+  /**
+   * Store execution result for idempotency
+   * @param idempotencyKey The unique key for this operation
+   * @param result The execution result to cache
+   */
+  protected async storeIdempotency(idempotencyKey: string, result: any, messageId?: string): Promise<void> {
+    if (!this.idempotencyStore) {
+      return
+    }
+    
+    const config = this.getInfrastructureConfig()
+    const ttl = config.idempotencyTtl || 86400 // 24 hours default
+    
+    const record: IdempotencyRecord = {
+      key: idempotencyKey,
+      actorId: this.context.actorId,
+      result,
+      executedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + ttl * 1000).toISOString(),
+      messageId,
+      metadata: {
+        actorType: this.constructor.name,
+        correlationId: this.context.correlationId
+      }
+    }
+    
+    try {
+      await this.idempotencyStore.set(record, ttl)
+      
+      if (this.observabilityTracer && this.context.trace) {
+        // Emit idempotency stored event
+        this.observabilityTracer.emit({
+          trace_id: this.context.trace.trace_id,
+          span_id: TraceWriter.generateId(),
+          parent_span_id: this.context.trace.span_id,
+          event_type: 'actor:idempotency_stored',
+          timestamp: new Date().toISOString(),
+          refs: {
+            idempotency: {
+              key: idempotencyKey,
+              ttl_seconds: ttl
+            }
+          },
+          metadata: {
+            actor_id: this.context.actorId,
+            actor_type: this.constructor.name
+          }
+        }).catch(() => {}) // Silent failure
+      }
+    } catch (error) {
+      // Log error but don't fail actor execution
+      console.error(`Failed to store idempotency for key ${idempotencyKey}:`, error)
+    }
   }
   
   /**
