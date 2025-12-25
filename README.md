@@ -334,10 +334,11 @@ const redis = new Redis({
   password: process.env.REDIS_PASSWORD
 });
 
-// Cosmos DB
+// Cosmos DB with Managed Identity
+const { DefaultAzureCredential } = require('@azure/identity');
 const cosmosClient = new CosmosClient({
   endpoint: process.env.COSMOS_ENDPOINT,
-  key: process.env.COSMOS_KEY
+  aadCredentials: new DefaultAzureCredential()
 });
 ```
 

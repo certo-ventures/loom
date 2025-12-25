@@ -12,8 +12,8 @@ export class CosmosDataStore implements DataStore {
   private stateContainer: Container;
   private resultsContainer: Container;
 
-  constructor(endpoint: string, key: string, database: string = 'loom') {
-    const client = new CosmosClient({ endpoint, key });
+  constructor(endpoint: string, credential: any, database: string = 'loom') {
+    const client = new CosmosClient({ endpoint, aadCredentials: credential });
     const db = client.database(database);
     
     this.actorsContainer = db.container('actors');

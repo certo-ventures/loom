@@ -74,9 +74,9 @@ async function test() {
   console.log(`
   const config: AdapterConfig = {
     messageQueue: { type: 'bullmq', redis: { host: 'redis.prod', port: 6379 } },
-    stateStore: { type: 'cosmos', cosmos: { endpoint: '...', key: '...', database: 'loom' } },
+    stateStore: { type: 'cosmos', cosmos: { endpoint: '...', database: 'loom' } },
     coordinationAdapter: { type: 'redis', redis: { host: 'redis.prod', port: 6379 } },
-    blobStore: { type: 'azure', azure: { connectionString: '...', container: 'actors' } },
+    blobStore: { type: 'azure', azure: { storageAccountUrl: 'https://myaccount.blob.core.windows.net', container: 'actors' } },
   }
   
   const adapters = AdapterFactory.createAll(config)

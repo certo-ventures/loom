@@ -1,30 +1,35 @@
 import { BlobServiceClient, ContainerClient } from '@azure/storage-blob'
+import { DefaultAzureCredential } from '@azure/identity'
 import type { BlobStore } from './blob-store'
 
 /**
  * AzureBlobStore - Azure Blob Storage implementation
  * 
- * Uses Azure Blob Storage for storing large binary data (WASM modules, payloads)
+ * Uses Azure Blob Storage with Managed Identity for storing large binary data (WASM modules, payloads)
  * 
  * Usage:
- *   const store = new AzureBlobStore(connectionString, 'my-container')
+ *   const store = new AzureBlobStore('https://myaccount.blob.core.windows.net', 'my-container')
  *   await store.initialize()
  *   await store.upload('actors/reviewer.wasm', buffer)
  */
 export class AzureBlobStore implements BlobStore {
   private containerClient: ContainerClient | null = null
+  private credential: DefaultAzureCredential
 
   constructor(
-    private connectionString: string,
+    private storageAccountUrl: string,
     private containerName: string = 'loom-blobs'
-  ) {}
+  ) {
+    this.credential = new DefaultAzureCredential()
+  }
 
   /**
    * Initialize container (creates if not exists)
    */
   async initialize(): Promise<void> {
-    const blobServiceClient = BlobServiceClient.fromConnectionString(
-      this.connectionString
+    const blobServiceClient = new BlobServiceClient(
+      this.storageAccountUrl,
+      this.credential
     )
 
     this.containerClient = blobServiceClient.getContainerClient(this.containerName)

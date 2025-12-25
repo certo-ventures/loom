@@ -127,11 +127,11 @@ export class CosmosDBActorRegistry {
   
   constructor(
     private endpoint: string,
-    private key: string,
+    private credential: any,
     private databaseId: string = 'loom',
     private containerId: string = 'actors'
   ) {
-    this.client = new CosmosClient({ endpoint, key })
+    this.client = new CosmosClient({ endpoint, aadCredentials: credential })
     this.database = this.client.database(databaseId)
     this.container = this.database.container(containerId)
   }

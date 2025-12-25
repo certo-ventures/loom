@@ -188,7 +188,7 @@ stateAdapter:
 
   # Cosmos DB-specific
   # endpoint: https://my-cosmos.documents.azure.com:443/
-  # key: ${COSMOS_KEY}
+  # Uses DefaultAzureCredential (Managed Identity) - no key needed!
   # databaseId: loom
   # containerId: actors
 
@@ -331,7 +331,7 @@ export REDIS_PASSWORD=secret123
 
 # Cosmos DB (if using Cosmos adapter)
 export COSMOS_ENDPOINT=https://my-cosmos.documents.azure.com:443/
-export COSMOS_KEY=your-key-here
+# Uses DefaultAzureCredential (Managed Identity) - no COSMOS_KEY needed!
 
 # Observability
 export LOOM_OBSERVABILITY_PORT=9090

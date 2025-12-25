@@ -12,12 +12,13 @@
 
 import { CosmosDBActorRegistry } from '../src/storage/cosmosdb-actor-registry'
 import { ActorMetadata } from '../src/discovery/actor-metadata'
+import { DefaultAzureCredential } from '@azure/identity'
 
 async function main() {
   // Initialize CosmosDB registry
   const registry = new CosmosDBActorRegistry(
     process.env.COSMOS_ENDPOINT || 'https://your-account.documents.azure.com:443/',
-    process.env.COSMOS_KEY || 'your-key-here',
+    new DefaultAzureCredential(),
     'loom',
     'actors'
   )

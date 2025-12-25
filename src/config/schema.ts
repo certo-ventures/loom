@@ -49,7 +49,6 @@ export const StateAdapterConfigSchema = z.object({
   redis: RedisConfigSchema.optional(),
   cosmos: z.object({
     endpoint: z.string(),
-    key: z.string(),
     database: z.string(),
     container: z.string(),
   }).optional(),
@@ -65,7 +64,6 @@ export const CoordinationAdapterConfigSchema = z.object({
   redis: RedisConfigSchema.optional(),
   cosmos: z.object({
     endpoint: z.string(),
-    key: z.string(),
     database: z.string(),
     container: z.string(),
   }).optional(),

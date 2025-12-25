@@ -154,6 +154,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
+    "@azure/identity": "^4.2.0",
     "@azure/storage-blob": "^12.29.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",

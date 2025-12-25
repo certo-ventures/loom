@@ -342,7 +342,8 @@ export class MainService {
         // If Cosmos configured, attempt to use adapter for efficient query
         if (process.env.COSMOS_ENDPOINT) {
           try {
-            const adapter = new CosmosAdapter({ endpoint: process.env.COSMOS_ENDPOINT, key: process.env.COSMOS_KEY, database: process.env.COSMOS_DB });
+            const { DefaultAzureCredential } = require('@azure/identity');
+            const adapter = new CosmosAdapter({ endpoint: process.env.COSMOS_ENDPOINT, credential: new DefaultAzureCredential(), database: process.env.COSMOS_DB });
             let fragment = { where: '1=1', params: [] } as any;
             if (filterOb) fragment = translateFilterObligation(filterOb, principal);
             // execute query against container 'valuationOrders'
@@ -447,7 +448,8 @@ export class MainService {
             // if Cosmos configured, use adapter for efficient query
             if (process.env.COSMOS_ENDPOINT) {
               try {
-                const adapter = new CosmosAdapter({ endpoint: process.env.COSMOS_ENDPOINT, key: process.env.COSMOS_KEY, database: process.env.COSMOS_DB });
+                const { DefaultAzureCredential } = require('@azure/identity');
+                const adapter = new CosmosAdapter({ endpoint: process.env.COSMOS_ENDPOINT, credential: new DefaultAzureCredential(), database: process.env.COSMOS_DB });
                 let fragment = { where: '1=1', params: [] } as any;
                 const filterOb = (decision.obligations && decision.obligations.find((o: any) => o.type === 'filter')) as any;
                 if (filterOb) fragment = translateFilterObligation(filterOb, principal);

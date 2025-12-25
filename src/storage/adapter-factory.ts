@@ -24,7 +24,7 @@ export interface AdapterConfig {
   
   stateStore?: {
     type: 'cosmos' | 'inmemory'
-    cosmos?: { endpoint: string; key: string; database: string }
+    cosmos?: { endpoint: string; database: string }
   }
   
   coordinationAdapter?: {
@@ -34,7 +34,7 @@ export interface AdapterConfig {
   
   blobStore?: {
     type: 'azure' | 'inmemory'
-    azure?: { connectionString: string; container: string }
+    azure?: { storageAccountUrl: string; container: string }
   }
 }
 
@@ -72,6 +72,7 @@ export class AdapterFactory {
     if (config.type === 'cosmos') {
       const { CosmosStateStore } = require('./cosmos-state-store')
       const { CosmosClient } = require('@azure/cosmos')
+      const { DefaultAzureCredential } = require('@azure/identity')
       
       if (!config.cosmos) {
         throw new Error('Cosmos configuration required for cosmos StateStore')
@@ -79,7 +80,7 @@ export class AdapterFactory {
       
       const client = new CosmosClient({
         endpoint: config.cosmos.endpoint,
-        key: config.cosmos.key,
+        aadCredentials: new DefaultAzureCredential(),
       })
       
       return new CosmosStateStore(client, config.cosmos.database, 'actors')
@@ -128,7 +129,7 @@ export class AdapterFactory {
       }
       
       return new AzureBlobStore(
-        config.azure.connectionString,
+        config.azure.storageAccountUrl,
         config.azure.container
       )
     }

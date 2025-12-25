@@ -34,7 +34,7 @@ stateAdapter:
     db: 2
   # cosmos:                 # Used when type is cosmos
   #   endpoint: https://...
-  #   key: your-key
+  #   # Uses DefaultAzureCredential (Managed Identity) - no key needed!
   #   database: loom
   #   container: actor-state
 

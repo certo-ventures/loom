@@ -174,7 +174,7 @@ const loom = new Loom({
   redis: { host: 'localhost', port: 6379 },
   cosmos: {
     endpoint: process.env.COSMOS_ENDPOINT,
-    key: process.env.COSMOS_KEY
+    // Uses Managed Identity - no key needed!
   }
 })
 
