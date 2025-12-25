@@ -16,17 +16,17 @@ export interface ActorImplementation {
  */
 export class PipelineActorWorker {
   private messageQueue: BullMQMessageQueue
-  private actors = new Map<string, new () => ActorImplementation>()
+  private actors = new Map<string, ActorImplementation | (new () => ActorImplementation)>()
 
   constructor(messageQueue: BullMQMessageQueue) {
     this.messageQueue = messageQueue
   }
 
   /**
-   * Register an actor implementation
+   * Register an actor implementation (supports both classes and instances)
    */
-  registerActor(actorType: string, actorClass: new () => ActorImplementation): void {
-    this.actors.set(actorType, actorClass)
+  registerActor(actorType: string, actorClassOrInstance: ActorImplementation | (new () => ActorImplementation)): void {
+    this.actors.set(actorType, actorClassOrInstance)
     console.log(`📦 Registered actor: ${actorType}`)
   }
 
@@ -34,8 +34,8 @@ export class PipelineActorWorker {
    * Start worker for an actor type
    */
   startWorker(actorType: string, concurrency: number = 1): void {
-    const actorClass = this.actors.get(actorType)
-    if (!actorClass) {
+    const actorClassOrInstance = this.actors.get(actorType)
+    if (!actorClassOrInstance) {
       throw new Error(`Actor ${actorType} not registered`)
     }
 
@@ -63,8 +63,12 @@ export class PipelineActorWorker {
     console.log(`      Stage: ${stageName}`)
 
     try {
-      const ActorClass = this.actors.get(actorType)!
-      const actor = new ActorClass()
+      const actorClassOrInstance = this.actors.get(actorType)!
+      
+      // Support both classes and instances
+      const actor = typeof actorClassOrInstance === 'function'
+        ? new (actorClassOrInstance as new () => ActorImplementation)()
+        : actorClassOrInstance
 
       const startTime = Date.now()
       const output = await actor.execute(input)
