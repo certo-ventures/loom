@@ -325,8 +325,6 @@ export class CosmosDBActorRegistry {
       SELECT * FROM c 
       WHERE c.actorType = @actorType 
         AND c.status = 'published'
-      ORDER BY c.version DESC, c.revision DESC
-      OFFSET 0 LIMIT 1
     `
 
     const { resources } = await this.container.items
@@ -336,7 +334,12 @@ export class CosmosDBActorRegistry {
       })
       .fetchAll()
 
-    return resources[0]
+    // Sort in memory to avoid composite index requirement
+    if (resources.length === 0) return undefined
+    return resources.sort((a, b) => {
+      const versionCompare = b.version.localeCompare(a.version)
+      return versionCompare !== 0 ? versionCompare : b.revision - a.revision
+    })[0]
   }
 
   /**
@@ -346,7 +349,6 @@ export class CosmosDBActorRegistry {
     const query = `
       SELECT * FROM c 
       WHERE c.actorType = @actorType
-      ORDER BY c.version DESC, c.revision DESC
     `
 
     const { resources } = await this.container.items
@@ -356,7 +358,11 @@ export class CosmosDBActorRegistry {
       })
       .fetchAll()
 
-    return resources
+    // Sort in memory to avoid composite index requirement
+    return resources.sort((a, b) => {
+      const versionCompare = b.version.localeCompare(a.version)
+      return versionCompare !== 0 ? versionCompare : b.revision - a.revision
+    })
   }
 
   /**
@@ -367,7 +373,6 @@ export class CosmosDBActorRegistry {
       SELECT * FROM c 
       WHERE c.actorType = @actorType 
         AND c.version = @version
-      ORDER BY c.revision DESC
     `
 
     const { resources } = await this.container.items
@@ -380,7 +385,8 @@ export class CosmosDBActorRegistry {
       })
       .fetchAll()
 
-    return resources
+    // Sort in memory to avoid composite index requirement
+    return resources.sort((a, b) => b.revision - a.revision)
   }
 
   /**
@@ -425,13 +431,14 @@ export class CosmosDBActorRegistry {
       parameters.push({ name: '@minSuccessRate', value: filter.minSuccessRate })
     }
 
-    query += ' ORDER BY c.registeredAt DESC'
-
     const { resources } = await this.container.items
       .query<ActorDocument>({ query, parameters })
       .fetchAll()
 
-    return resources
+    // Sort in memory to avoid composite index requirement
+    return resources.sort((a, b) => 
+      new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime()
+    )
   }
 
   /**
