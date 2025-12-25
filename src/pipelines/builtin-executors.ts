@@ -72,7 +72,28 @@ export class ScatterExecutor extends BaseStageExecutor {
     const config = this.getConfig<ScatterConfig>(stage)
     
     // Extract items using JSONPath
+    console.log(`   📍 JSONPath query: ${stage.scatter.input}`)
+    console.log(`   📦 Available stages: ${Object.keys(pipelineContext.stages || {}).join(', ')}`)
+    
     let items = jp.query(pipelineContext, stage.scatter.input)
+    
+    if (items.length === 0) {
+      const dotNotation = stage.scatter.input.replace(/\["([^"]+)"\]/g, '.$1')
+      console.warn(`   ⚠️  JSONPath returned 0 items!`)
+      console.warn(`   💡 Suggestions:`)
+      console.warn(`      - Try dot notation: ${dotNotation}`)
+      console.warn(`      - Check stage has completed and stored results`)
+      console.warn(`      - Verify stage name matches exactly (case-sensitive)`)
+      
+      // Log stage contents for debugging
+      if (pipelineContext.stages) {
+        const stageKeys = Object.keys(pipelineContext.stages)
+        stageKeys.forEach(key => {
+          const stageData = pipelineContext.stages[key]
+          console.warn(`      - stages.${key}: ${Array.isArray(stageData) ? `${stageData.length} items` : typeof stageData}`)
+        })
+      }
+    }
     
     if (items.length > 0 && Array.isArray(items[0])) {
       items = items.flat()
