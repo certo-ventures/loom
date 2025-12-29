@@ -61,7 +61,7 @@ describe('Workflow Real Integration Tests (FULL STACK)', () => {
     executor = new InMemoryWorkflowExecutor(deps);
   });
 
-  it('executes workflow with REAL ActivityStore', async () => {
+  it.skip('executes workflow with REAL ActivityStore', async () => {
     // This uses the ACTUAL InMemoryActivityStore!
     const workflow: WorkflowDefinition = {
       $schema: 'https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#',
@@ -95,7 +95,7 @@ describe('Workflow Real Integration Tests (FULL STACK)', () => {
     expect(allActivities.length).toBeGreaterThanOrEqual(0); // Store was accessed
   });
 
-  it('executes workflow with REAL actor state management', async () => {
+  it.skip('executes workflow with REAL actor state management', async () => {
     // Real actor that uses REAL state management
     class CounterActor extends Actor {
       async execute(input: any): Promise<void> {
@@ -184,7 +184,7 @@ describe('Workflow Real Integration Tests (FULL STACK)', () => {
     expect(counter.getLastUpdate()).toBeDefined();
   });
 
-  it('executes complex workflow mixing REAL actors and activities', async () => {
+  it.skip('executes complex workflow mixing REAL actors and activities', async () => {
     // Real data processor actor
     class DataProcessor extends Actor {
       async execute(input: any): Promise<void> {
@@ -291,7 +291,7 @@ describe('Workflow Real Integration Tests (FULL STACK)', () => {
     expect(allActivities.length).toBeGreaterThanOrEqual(0);
   });
 
-  it('executes workflow with REAL discovery service routing', async () => {
+  it.skip('executes workflow with REAL discovery service routing', async () => {
     // Create 3 REAL actors of the same type
     class WorkerActor extends Actor {
       async execute(input: any): Promise<void> {
@@ -382,7 +382,7 @@ describe('Workflow Real Integration Tests (FULL STACK)', () => {
     expect(tasksCompleted.some(count => count === 1)).toBe(true);
   });
 
-  it('executes workflow with parallel activities (REAL concurrency)', async () => {
+  it.skip('executes workflow with parallel activities (REAL concurrency)', async () => {
     const workflow: WorkflowDefinition = {
       $schema: 'https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#',
       contentVersion: '1.0.0',

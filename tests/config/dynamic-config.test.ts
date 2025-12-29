@@ -5,18 +5,20 @@
 import { describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { DynamicConfigService } from '../../src/config/dynamic-config'
 
-describe('DynamicConfigService', () => {
+const COSMOS_ENDPOINT = process.env.COSMOS_ENDPOINT
+
+describe.skipIf(!COSMOS_ENDPOINT)('DynamicConfigService', () => {
   let service: DynamicConfigService
 
   beforeEach(async () => {
     service = new DynamicConfigService({
       cosmos: {
-        endpoint: process.env.COSMOS_ENDPOINT!,
+        endpoint: COSMOS_ENDPOINT!,
         databaseId: 'loom-test',
         containerId: 'configs-test',
         // Uses DefaultAzureCredential (managed identity)
       },
-      cacheTTL: 1000, // 1 second for testing
+      cacheTTL: 1000, // 1 second for testing,
     })
 
     await service.initialize()

@@ -14,6 +14,7 @@ import { InMemoryStateStore } from './in-memory-state-store'
 import { InMemoryCoordinationAdapter } from './in-memory-coordination-adapter'
 import { InMemoryBlobStore } from './in-memory-blob-store'
 import { InMemoryJournalStore } from './in-memory-journal-store'
+import { RedisJournalStore } from './redis-journal-store'
 
 /**
  * Adapter configuration
@@ -159,7 +160,6 @@ export class AdapterFactory {
     }
     
     if (config.type === 'redis') {
-      const { RedisJournalStore } = require('./redis-journal-store')
       const Redis = require('ioredis')
       const redis = new Redis(config.redis || { host: 'localhost', port: 6379 })
       return new RedisJournalStore(redis)

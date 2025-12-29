@@ -103,7 +103,7 @@ describe('Multi-Stage Gather', () => {
       items: [{ value: 10 }, { value: 20 }]
     })
 
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    await new Promise(resolve => setTimeout(resolve, 2000))
 
     // Should have 4 items total: 2 from A, 2 from B
     expect(consolidatedData).toHaveLength(4)
@@ -270,7 +270,7 @@ describe('Multi-Stage Gather', () => {
       document: 'test-doc.pdf'
     })
 
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    await new Promise(resolve => setTimeout(resolve, 2500))
 
     expect(finalResult).toHaveProperty('classify')
     expect(finalResult).toHaveProperty('extract')

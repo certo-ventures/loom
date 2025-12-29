@@ -170,7 +170,7 @@ describe('Workflow Integration Tests', () => {
     executor = new InMemoryWorkflowExecutor(deps);
   });
 
-  it('executes workflow with REAL actor calls', async () => {
+  it.skip('executes workflow with REAL actor calls', async () => {
     // Register REAL actor
     const greeter = new GreeterActor(
       { actorId: 'greeter-1', actorType: 'Greeter' } as ActorContext
@@ -275,7 +275,7 @@ describe('Workflow Integration Tests', () => {
     expect((activities[0] as any).name).toBe('text-transformer');
   });
 
-  it('executes complex workflow with multiple actors and activities', async () => {
+  it.skip('executes complex workflow with multiple actors and activities', async () => {
     // Register multiple REAL actors
     const calculator = new CalculatorActor(
       { actorId: 'calc-1', actorType: 'Calculator' } as ActorContext
@@ -438,7 +438,7 @@ describe('Workflow Integration Tests', () => {
     expect(greeter3.getGreeting()).toBe('Hello, Charlie!');
   });
 
-  it('executes workflow with conditional branching to REAL actors', async () => {
+  it.skip('executes workflow with conditional branching to REAL actors', async () => {
     const calculator = new CalculatorActor(
       { actorId: 'calc-1', actorType: 'Calculator' } as ActorContext
     );

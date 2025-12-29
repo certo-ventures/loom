@@ -125,9 +125,9 @@ describe('Memory Helpers', () => {
 
     const call = (mockAdapter.addMemory as any).mock.calls[0][0]
     expect(call.tenantId).toBe('test-tenant')
-    expect(call.agentId).toBe('TestActor')
     expect(call.threadId).toBe('thread-456')
     expect(call.metadata.actorType).toBe('TestActor')
+    expect(call.metadata.actorId).toBe('actor-123')
     expect(call.metadata.customField).toBe('custom value')
   })
 })
