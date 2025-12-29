@@ -29,6 +29,11 @@ export interface ActorContext {
   parentTraceId?: string
   trace?: import('../types').TraceContext // Trace context for observability
   sharedMemory?: SharedMemory
+  
+  // Telemetry methods for observability
+  recordEvent(eventType: string, data?: unknown): void
+  recordMetric(name: string, value: number, tags?: Record<string, string>): void
+  startSpan(operation: string): () => void  // Returns endSpan function
 }
 
 /**

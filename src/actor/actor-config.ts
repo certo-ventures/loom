@@ -80,6 +80,14 @@ export interface ActorInfrastructureConfig {
    * Default: 1 (sequential processing)
    */
   concurrency?: number
+  
+  /**
+   * Journal compaction threshold
+   * Number of journal entries before auto-compaction triggers
+   * Set to 0 to disable auto-compaction
+   * Default: 100
+   */
+  journalCompactionThreshold?: number
 }
 
 /**
@@ -99,6 +107,7 @@ export const DEFAULT_ACTOR_CONFIG: Required<ActorInfrastructureConfig> = {
   evictionPriority: 'medium',
   deadLetterQueue: true,
   concurrency: 1,
+  journalCompactionThreshold: 100,
 }
 
 /**
@@ -125,6 +134,7 @@ export function mergeActorConfig(
     evictionPriority: config.evictionPriority ?? DEFAULT_ACTOR_CONFIG.evictionPriority,
     deadLetterQueue: config.deadLetterQueue ?? DEFAULT_ACTOR_CONFIG.deadLetterQueue,
     concurrency: config.concurrency ?? DEFAULT_ACTOR_CONFIG.concurrency,
+    journalCompactionThreshold: config.journalCompactionThreshold ?? DEFAULT_ACTOR_CONFIG.journalCompactionThreshold,
   }
 }
 

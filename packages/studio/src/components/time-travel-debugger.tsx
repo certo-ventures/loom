@@ -22,7 +22,7 @@ interface TimeTravelDebuggerProps {
   actorId: string;
 }
 
-export function TimeTravelDebugger({ entries, actorId }: TimeTravelDebuggerProps) {
+export function TimeTravelDebugger({ entries }: TimeTravelDebuggerProps) {
   const [currentIndex, setCurrentIndex] = useState(entries.length - 1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);

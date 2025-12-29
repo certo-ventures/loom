@@ -30,6 +30,9 @@ export interface ConfigResolver {
   onChange(callback: (event: ConfigChangeEvent) => void): () => void
 }
 
-export * from './schema'
-export * from './loader'
-export * from './merger'
+export * from './schema.js'
+export * from './loader.js'
+export * from './merger.js'
+export * from './types.js'
+export { DynamicConfigService } from './dynamic-config.js'
+export type { DynamicConfig } from './dynamic-config.js'

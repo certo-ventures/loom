@@ -28,19 +28,20 @@ export class SingleExecutor extends BaseStageExecutor {
     const { pipelineId, stage, pipelineContext, messageQueue } = context
     
     const input = this.resolveInput(stage.input, pipelineContext)
+    const actorType = this.resolveActor(stage, pipelineContext)
     
     const message = this.createMessage(
       pipelineId,
       stage.name,
-      stage.actor,
+      actorType,
       0,
       input
     )
     
-    await messageQueue.enqueue(`actor-${stage.actor}`, message)
+    await messageQueue.enqueue(`actor-${actorType}`, message)
     
-    console.log(`   🎯 Single actor: ${stage.actor}`)
-    console.log(`   ✅ Message enqueued to: actor-${stage.actor}`)
+    console.log(`   🎯 Single actor: ${actorType}`)
+    console.log(`   ✅ Message enqueued to: actor-${actorType}`)
     
     return { expectedTasks: 1 }
   }
@@ -99,6 +100,20 @@ export class ScatterExecutor extends BaseStageExecutor {
       items = items.flat()
     }
     
+    // Apply condition filter if specified
+    if (stage.scatter?.condition) {
+      const originalCount = items.length
+      items = items.filter(item => {
+        const scopedContext = {
+          ...pipelineContext,
+          [stage.scatter!.as]: item
+        }
+        // Simple expression evaluator for conditions
+        return this.evaluateCondition(stage.scatter!.condition!, scopedContext)
+      })
+      console.log(`   🔍 FILTER: ${originalCount} items → ${items.length} items (condition: ${stage.scatter!.condition})`)
+    }
+    
     console.log(`   🔀 SCATTER: Fan-out over ${items.length} items`)
     if (config.maxParallel) {
       console.log(`      Max parallel: ${config.maxParallel}`)
@@ -115,19 +130,21 @@ export class ScatterExecutor extends BaseStageExecutor {
       }
       
       const input = this.resolveInput(stage.input, scopedContext)
+      const actorType = this.resolveActor(stage, scopedContext)
       
       const message = this.createMessage(
         pipelineId,
         stage.name,
-        stage.actor,
+        actorType,
         i,
         input
       )
       
-      await messageQueue.enqueue(`actor-${stage.actor}`, message)
+      await messageQueue.enqueue(`actor-${actorType}`, message)
     }
     
-    console.log(`   ✅ ${items.length} messages enqueued to: actor-${stage.actor}`)
+    const actorDisplay = typeof stage.actor === 'string' ? stage.actor : '[strategy]'
+    console.log(`   ✅ ${items.length} messages enqueued to: actor-${actorDisplay}`)
     
     return { expectedTasks: items.length }
   }
@@ -157,19 +174,34 @@ export class GatherExecutor extends BaseStageExecutor {
     }
     
     const config = this.getConfig<GatherConfig>(stage)
+    const stages = Array.isArray(stage.gather.stage) ? stage.gather.stage : [stage.gather.stage]
+    const combineMode = stage.gather.combine || 'concat'
     
-    console.log(`   🎯 GATHER (BARRIER): Collecting from stage ${stage.gather.stage}`)
+    console.log(`   🎯 GATHER (BARRIER): Collecting from ${stages.length} stage(s): ${stages.join(', ')}`)
     
-    // Get outputs from target stage (barrier already enforced by orchestrator)
-    const targetOutputs = pipelineContext.stages[stage.gather.stage] || []
+    // Collect outputs from all target stages
+    let allOutputs: any[] = []
+    const stageOutputsMap: Record<string, any[]> = {}
     
-    console.log(`   📊 Collected ${targetOutputs.length} outputs`)
+    for (const stageName of stages) {
+      const outputs = pipelineContext.stages[stageName] || []
+      stageOutputsMap[stageName] = outputs
+      
+      if (combineMode === 'concat') {
+        allOutputs = allOutputs.concat(outputs)
+      }
+    }
+    
+    // For 'object' mode, create object with stage names as keys
+    const combinedData = combineMode === 'object' ? stageOutputsMap : allOutputs
+    
+    console.log(`   📊 Collected ${allOutputs.length} total outputs (combine: ${combineMode})`)
     
     // Group if specified
     if (stage.gather.groupBy) {
       const groups = new Map<string, any[]>()
       
-      for (const item of targetOutputs) {
+      for (const item of allOutputs) {
         const groupKey = jp.value(item, stage.gather.groupBy)
         if (!groups.has(groupKey)) {
           groups.set(groupKey, [])
@@ -188,17 +220,18 @@ export class GatherExecutor extends BaseStageExecutor {
         }
         
         const input = this.resolveInput(stage.input, scopedContext)
+        const actorType = this.resolveActor(stage, scopedContext)
         
         const message = this.createMessage(
           pipelineId,
           stage.name,
-          stage.actor,
+          actorType,
           groupIndex,
           input,
           { groupKey: key }
         )
         
-        await messageQueue.enqueue(`actor-${stage.actor}`, message)
+        await messageQueue.enqueue(`actor-${actorType}`, message)
         console.log(`      └─ Group "${key}": ${items.length} items`)
         groupIndex++
       }
@@ -210,18 +243,20 @@ export class GatherExecutor extends BaseStageExecutor {
       // No grouping - single consolidation with all items
       const input = this.resolveInput(stage.input, {
         ...pipelineContext,
-        items: targetOutputs
+        gathered: combinedData  // Provide combined data for multi-stage gather
       })
+      
+      const actorType = this.resolveActor(stage, pipelineContext)
       
       const message = this.createMessage(
         pipelineId,
         stage.name,
-        stage.actor,
+        actorType,
         0,
         input
       )
       
-      await messageQueue.enqueue(`actor-${stage.actor}`, message)
+      await messageQueue.enqueue(`actor-${actorType}`, message)
       
       console.log(`   ✅ Single consolidation message enqueued`)
       

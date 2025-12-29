@@ -1,7 +1,9 @@
 import type { Actor, ActorContext } from '../actor'
 import type { StateStore, MessageQueue, LockManager } from '../storage'
+import type { JournalStore } from '../storage/journal-store'
 import type { ActorState, TraceContext } from '../types'
 import { TraceWriter } from '../observability/tracer'
+import { TelemetryRecorder, createSpanTracker } from '../observability/telemetry-recorder'
 
 /**
  * Factory function to create actor instances
@@ -16,14 +18,17 @@ export class ActorRuntime {
   private activeActors = new Map<string, Actor>()
   private actorLocks = new Map<string, any>() // Track locks by actorId
   private tracer?: TraceWriter
+  private journalStore?: JournalStore
   
   constructor(
     private stateStore: StateStore,
     private messageQueue: MessageQueue,
     private lockManager: LockManager,
-    tracer?: TraceWriter
+    tracer?: TraceWriter,
+    journalStore?: JournalStore
   ) {
     this.tracer = tracer
+    this.journalStore = journalStore
   }
 
   /**
@@ -66,18 +71,79 @@ export class ActorRuntime {
         correlationId: stored?.correlationId || actorId,
         parentActorId: stored?.metadata?.parentActorId as string | undefined,
         ...contextOverrides, // Allow trace and other overrides
+        
+        // Telemetry methods
+        recordEvent: (eventType: string, data?: unknown) => {
+          TelemetryRecorder.recordEvent({
+            timestamp: new Date().toISOString(),
+            actorId,
+            actorType,
+            correlationId: stored?.correlationId || actorId,
+            eventType,
+            data
+          })
+        },
+        
+        recordMetric: (name: string, value: number, tags?: Record<string, string>) => {
+          TelemetryRecorder.recordMetric({
+            timestamp: new Date().toISOString(),
+            actorId,
+            actorType,
+            name,
+            value,
+            tags
+          })
+        },
+        
+        startSpan: (operation: string) => {
+          return createSpanTracker(actorId, actorType, operation)
+        }
       }
 
       // Instantiate actor with loaded state and tracer
       const actor = factory(context, stored?.state || undefined)
       
-      // Inject tracer if available
+      // Inject dependencies if available
       if (this.tracer) {
         (actor as any).observabilityTracer = this.tracer
       }
+      if (this.journalStore) {
+        (actor as any).journalStore = this.journalStore
+      }
 
-      // Load journal if exists
-      if (stored?.metadata?.journal) {
+      // Load journal from journalStore if available, otherwise fallback to metadata
+      if (this.journalStore) {
+        try {
+          // Check for snapshot first
+          const snapshot = await this.journalStore.getLatestSnapshot(actorId)
+          const entries = await this.journalStore.readEntries(actorId)
+          
+          if (snapshot) {
+            // Snapshot exists - use it as base state
+            // Deep copy to prevent mutations
+            try {
+              ;(actor as any).state = JSON.parse(JSON.stringify(snapshot.state))
+            } catch (error) {
+              console.error(`Failed to restore snapshot state for ${actorId}, using shallow copy:`, error)
+              ;(actor as any).state = { ...snapshot.state }
+            }
+            // Load any entries after snapshot (should be empty after compaction)
+            if (entries.length > 0) {
+              actor.loadJournal({ entries, cursor: 0 })
+            }
+          } else {
+            // No snapshot, load all entries
+            // Actor will replay on next execute/resume call
+            if (entries.length > 0) {
+              actor.loadJournal({ entries, cursor: 0 })
+            }
+          }
+        } catch (error) {
+          console.error(`Failed to load journal for ${actorId}:`, error)
+          // Continue with empty journal - actor will start fresh
+        }
+      } else if (stored?.metadata?.journal) {
+        // Fallback to old method if journalStore not configured
         actor.loadJournal(stored.metadata.journal as any)
       }
 

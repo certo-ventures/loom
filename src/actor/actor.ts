@@ -6,6 +6,9 @@ import { mergeActorConfig } from './actor-config'
 import { Tracer } from '../tracing'
 import { TraceWriter } from '../observability/tracer'
 import type { IdempotencyStore, IdempotencyRecord } from '../storage/idempotency-store'
+import type { JournalStore } from '../storage/journal-store'
+import { createMemoryHelpers, type MemoryHelpers, type MemoryContext } from './memory-helpers'
+import type { MemoryAdapter } from '../memory'
 
 /**
  * Base Actor class - all actors extend this
@@ -43,21 +46,55 @@ export abstract class Actor {
    */
   private idempotencyStore?: IdempotencyStore
   
+  /**
+   * Optional journal store for durable journal persistence
+   */
+  private journalStore?: JournalStore
+  
+  /**
+   * Optional memory adapter (opt-in)
+   */
+  private memoryAdapter?: MemoryAdapter
+  
+  /**
+   * Memory helper methods (no-op if memory not configured)
+   */
+  protected readonly memory: MemoryHelpers
+  
   private journal: Journal
   private isReplaying: boolean = false
   private activityCounter: number = 0
+  private isCompacting: boolean = false
+  private lastCompactionTime: number = 0
+  private cachedCompactionThreshold: number | undefined
 
   constructor(
     context: ActorContext, 
     initialState?: Record<string, unknown>, 
     observabilityTracer?: TraceWriter,
-    idempotencyStore?: IdempotencyStore
+    idempotencyStore?: IdempotencyStore,
+    memoryAdapter?: MemoryAdapter,
+    journalStore?: JournalStore
   ) {
     this.context = context
     this.state = initialState ?? this.getDefaultState()
     this.journal = { entries: [], cursor: 0 }
     this.observabilityTracer = observabilityTracer
     this.idempotencyStore = idempotencyStore
+    this.memoryAdapter = memoryAdapter
+    this.journalStore = journalStore
+    
+    // Initialize memory helpers (no-op if adapter not provided)
+    const memoryContext: MemoryContext = {
+      tenantId: (context as any).tenantId || 'default',
+      userId: (context as any).userId,
+      actorType: this.constructor.name,
+      actorId: context.actorId,
+      threadId: (context as any).threadId || context.correlationId || context.actorId,
+      runId: (context as any).runId,
+      metadata: (context as any).metadata,
+    }
+    this.memory = createMemoryHelpers(memoryAdapter, memoryContext)
     
     // Initialize simple state facade
     this.simpleState = new SimpleStateImpl(
@@ -65,10 +102,21 @@ export abstract class Actor {
       (newState) => {
         this.state = newState
         if (!this.isReplaying) {
-          this.journal.entries.push({
+          // Deep copy state to prevent mutations
+          let stateCopy: Record<string, unknown>
+          try {
+            stateCopy = JSON.parse(JSON.stringify(this.state))
+          } catch (error) {
+            console.warn('Failed to deep copy state in simpleState, using shallow copy:', error)
+            stateCopy = { ...this.state }
+          }
+          
+          const entry: JournalEntry = {
             type: 'state_updated',
-            state: this.state,
-          })
+            state: stateCopy,
+          }
+          this.journal.entries.push(entry)
+          this.persistJournalEntry(entry).catch(() => {}) // Don't block on persistence
         }
       }
     )
@@ -151,10 +199,39 @@ export abstract class Actor {
     
     if (!this.isReplaying) {
       const entryIndex = this.journal.entries.length
-      this.journal.entries.push({
+      
+      // Deep copy state to prevent mutations
+      let stateCopy: Record<string, unknown>
+      try {
+        stateCopy = JSON.parse(JSON.stringify(this.state))
+      } catch (error) {
+        console.warn('Failed to deep copy state in updateState, using shallow copy:', error)
+        stateCopy = { ...this.state }
+      }
+      
+      const entry: JournalEntry = {
         type: 'state_updated',
-        state: this.state,
-      })
+        state: stateCopy,
+      }
+      this.journal.entries.push(entry)
+      
+      // Persist entry asynchronously
+      this.persistJournalEntry(entry).catch(() => {})
+      
+      // Auto-compact if journal gets too large and not recently compacted
+      // Cache the threshold to avoid repeated config calls in hot path
+      if (this.cachedCompactionThreshold === undefined) {
+        this.cachedCompactionThreshold = this.getInfrastructureConfig().journalCompactionThreshold || 100
+      }
+      const compactionThreshold = this.cachedCompactionThreshold
+      
+      if (compactionThreshold > 0 && this.journal.entries.length >= compactionThreshold && !this.isCompacting) {
+        // Check if enough time passed since last compaction (avoid rapid re-compaction)
+        const minTimeBetweenCompactions = 5000 // 5 seconds
+        if (Date.now() - this.lastCompactionTime > minTimeBetweenCompactions) {
+          this.compactJournal().catch(() => {}) // Don't block on compaction
+        }
+      }
       
       // Trace state update (legacy tracer)
       this.tracer?.stateUpdated(updates)
@@ -222,12 +299,16 @@ export abstract class Actor {
     }
 
     // Record scheduling
-    this.journal.entries.push({
+    const entry: JournalEntry = {
       type: 'activity_scheduled',
       activityId,
       name,
       input,
-    })
+    }
+    this.journal.entries.push(entry)
+    
+    // Persist entry asynchronously
+    this.persistJournalEntry(entry).catch(() => {})
     
     // Trace activity scheduling
     this.tracer?.activityScheduled(name, input)
@@ -244,12 +325,25 @@ export abstract class Actor {
     const childId = `${this.context.actorId}-child-${Date.now()}`
 
     if (!this.isReplaying) {
-      this.journal.entries.push({
+      // Deep copy input to prevent mutations from corrupting journal
+      let inputCopy: unknown
+      try {
+        inputCopy = JSON.parse(JSON.stringify(input))
+      } catch (error) {
+        console.warn('Failed to deep copy child spawn input, using reference:', error)
+        inputCopy = input
+      }
+      
+      const entry: JournalEntry = {
         type: 'child_spawned',
         childId,
         actorType,
-        input,
-      })
+        input: inputCopy,
+      }
+      this.journal.entries.push(entry)
+      
+      // Persist entry asynchronously
+      this.persistJournalEntry(entry).catch(() => {})
       
       // Trace message sent to child
       this.tracer?.messageSent(childId, { actorType, input })
@@ -310,10 +404,14 @@ export abstract class Actor {
     }
 
     // Suspend waiting for event
-    this.journal.entries.push({
+    const entry: JournalEntry = {
       type: 'suspended',
       reason: `awaiting_event:${eventType}`,
-    })
+    }
+    this.journal.entries.push(entry)
+
+    // Persist entry asynchronously
+    this.persistJournalEntry(entry).catch(() => {})
 
     throw new EventSuspendError(eventType)
   }
@@ -322,11 +420,15 @@ export abstract class Actor {
    * Resume actor with event data
    */
   async resume(eventType: string, eventData: unknown): Promise<void> {
-    this.journal.entries.push({
+    const entry: JournalEntry = {
       type: 'event_received',
       eventType,
       data: eventData,
-    })
+    }
+    this.journal.entries.push(entry)
+    
+    // Persist entry asynchronously
+    this.persistJournalEntry(entry).catch(() => {})
     
     // Trace journal entry
     this.tracer?.journalEntry('event_received', { eventType, data: eventData })
@@ -339,11 +441,15 @@ export abstract class Actor {
    * Resume actor after activity completion
    */
   async resumeWithActivity(activityId: string, result: unknown): Promise<void> {
-    this.journal.entries.push({
+    const entry: JournalEntry = {
       type: 'activity_completed',
       activityId,
       result,
-    })
+    }
+    this.journal.entries.push(entry)
+    
+    // Persist entry asynchronously
+    this.persistJournalEntry(entry).catch(() => {})
     
     // Trace activity completion
     this.tracer?.activityCompleted(activityId, result)
@@ -355,11 +461,15 @@ export abstract class Actor {
    * Resume actor after activity failure
    */
   async resumeWithActivityError(activityId: string, error: string): Promise<void> {
-    this.journal.entries.push({
+    const entry: JournalEntry = {
       type: 'activity_failed',
       activityId,
       error,
-    })
+    }
+    this.journal.entries.push(entry)
+    
+    // Persist entry asynchronously
+    this.persistJournalEntry(entry).catch(() => {})
     
     // Trace activity failure
     this.tracer?.activityFailed(activityId, new Error(error))
@@ -377,6 +487,20 @@ export abstract class Actor {
     
     // Reset state to default
     this.state = this.getDefaultState()
+
+    // Apply all state_updated entries first to restore state
+    for (const entry of this.journal.entries) {
+      if (entry.type === 'state_updated') {
+        // Deep copy to prevent mutations from affecting journal
+        try {
+          this.state = JSON.parse(JSON.stringify(entry.state))
+        } catch (error) {
+          // Fallback to shallow copy if JSON fails
+          console.warn('Failed to deep copy state during replay:', error)
+          this.state = { ...entry.state }
+        }
+      }
+    }
 
     try {
       // Continue execution - this will replay through journal
@@ -405,6 +529,66 @@ export abstract class Actor {
    */
   loadJournal(journal: Journal): void {
     this.journal = journal
+  }
+
+  /**
+   * Create a snapshot and compact journal (if journalStore configured)
+   * Call this periodically or after N entries to prevent unbounded growth
+   */
+  async compactJournal(): Promise<void> {
+    if (!this.journalStore) {
+      return // No-op if journal persistence not configured
+    }
+
+    // Prevent concurrent compaction
+    if (this.isCompacting) {
+      return // Already compacting
+    }
+
+    // Only compact if we have enough entries to make it worthwhile
+    const COMPACTION_THRESHOLD = this.getInfrastructureConfig().journalCompactionThreshold || 100
+    if (this.journal.entries.length < COMPACTION_THRESHOLD) {
+      return
+    }
+
+    this.isCompacting = true
+    try {
+      // Wait a brief moment for any in-flight persistJournalEntry calls to complete
+      // This is a simple approach - production would use proper async coordination
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Deep copy state to prevent mutations (handle circular refs)
+      let stateCopy: Record<string, unknown>
+      try {
+        stateCopy = JSON.parse(JSON.stringify(this.state))
+      } catch (circularError) {
+        console.warn(`Cannot compact journal for ${this.context.actorId}: circular reference in state`)
+        return
+      }
+
+      const snapshot = {
+        state: stateCopy,
+        cursor: this.journal.entries.length,
+        timestamp: Date.now(),
+      }
+
+      await this.journalStore.saveSnapshot(this.context.actorId, snapshot)
+
+      // Trim old entries from persistent store
+      // This removes all entries - snapshot contains full state
+      await this.journalStore.trimEntries(this.context.actorId, snapshot.cursor)
+
+      // Clear in-memory journal since snapshot captures everything
+      // New entries will be appended both to memory and store
+      this.journal.entries = []
+      this.journal.cursor = 0
+      this.lastCompactionTime = Date.now()
+    } catch (error) {
+      // Log but don't throw - compaction failure shouldn't crash actor
+      console.error(`Failed to compact journal for ${this.context.actorId}:`, error)
+    } finally {
+      this.isCompacting = false
+    }
   }
 
   /**
@@ -532,6 +716,25 @@ export abstract class Actor {
         this.tracer?.error(error)
       }
       throw error
+    }
+  }
+
+  /**
+   * Persist journal entry to store (if configured)
+   */
+  private async persistJournalEntry(entry: JournalEntry): Promise<void> {
+    if (this.journalStore) {
+      try {
+        await this.journalStore.appendEntry(this.context.actorId, entry)
+      } catch (error) {
+        // Log error but don't throw - persistence failure shouldn't block actor
+        console.error(`Failed to persist journal entry for ${this.context.actorId}:`, {
+          error,
+          entryType: entry.type,
+          actorId: this.context.actorId,
+          journalLength: this.journal.entries.length,
+        })
+      }
     }
   }
 }

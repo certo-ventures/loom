@@ -14,7 +14,6 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { ActorInfo } from '../types/loom';
-import { Badge } from './ui/badge';
 import { Activity, Inbox } from 'lucide-react';
 
 interface ActorNodeData {
@@ -135,10 +134,14 @@ export function ActorNetwork({ actors, onSelectActor }: ActorNetworkProps) {
         <Controls />
         <MiniMap
           nodeColor={(node) => {
-            const actor = (node.data as ActorNodeData).actor;
-            return actor.status === 'active' ? '#22c55e' :
-                   actor.status === 'idle' ? '#eab308' :
-                   '#6b7280';
+            const nodeData = node.data as Record<string, unknown>;
+            if (nodeData && typeof nodeData === 'object' && 'actor' in nodeData) {
+              const actor = (nodeData as unknown as ActorNodeData).actor;
+              return actor.status === 'active' ? '#22c55e' :
+                     actor.status === 'idle' ? '#eab308' :
+                     '#6b7280';
+            }
+            return '#6b7280';
           }}
           className="bg-background border border-border"
         />

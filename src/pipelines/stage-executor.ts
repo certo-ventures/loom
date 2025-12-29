@@ -8,7 +8,8 @@
 import jp from 'jsonpath'
 import { v4 as uuidv4 } from 'uuid'
 import { BullMQMessageQueue } from '../storage/bullmq-message-queue'
-import { StageDefinition } from './pipeline-dsl'
+import { StageDefinition, ActorStrategy } from './pipeline-dsl'
+import { ExpressionEvaluator } from './expression-evaluator'
 
 /**
  * Pipeline-specific message format
@@ -121,5 +122,63 @@ export abstract class BaseStageExecutor implements StageExecutor {
    */
   protected getConfig<T = any>(stage: StageDefinition): T {
     return (stage.executorConfig || {}) as T
+  }
+  
+  /**
+   * Evaluate condition expression using expression evaluator
+   */
+  protected evaluateCondition(condition: string, context: any): boolean {
+    return ExpressionEvaluator.evaluate(condition, context)
+  }
+  
+  /**
+   * Resolve actor type from strategy
+   */
+  protected resolveActor(stage: StageDefinition, context: any): string {
+    // Simple string actor
+    if (typeof stage.actor === 'string') {
+      return stage.actor
+    }
+    
+    const strategy = stage.actor as ActorStrategy
+    
+    // Strategy with ternary expression
+    if (strategy.strategy) {
+      return this.evaluateTernary(strategy.strategy, context)
+    }
+    
+    // Strategy with when/condition mappings
+    if (strategy.when) {
+      for (const mapping of strategy.when) {
+        if (this.evaluateCondition(mapping.condition, context)) {
+          return mapping.actor
+        }
+      }
+      
+      // No match - use default
+      if (strategy.default) {
+        return strategy.default
+      }
+      
+      throw new Error(`No actor matched strategy conditions and no default provided`)
+    }
+    
+    throw new Error(`Invalid actor strategy: ${JSON.stringify(strategy)}`)
+  }
+  
+  /**
+   * Evaluate ternary expression: condition ? trueValue : falseValue
+   */
+  private evaluateTernary(expression: string, context: any): string {
+    const ternaryMatch = expression.match(/(.+?)\s*\?\s*"([^"]+)"\s*:\s*"([^"]+)"/)
+    
+    if (!ternaryMatch) {
+      throw new Error(`Invalid ternary expression: ${expression}`)
+    }
+    
+    const [, condition, trueValue, falseValue] = ternaryMatch
+    const result = this.evaluateCondition(condition.trim(), context)
+    
+    return result ? trueValue : falseValue
   }
 }

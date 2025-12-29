@@ -16,6 +16,22 @@
 // Pipeline DSL Types
 // ============================================================================
 
+/**
+ * Strategy-based actor selection
+ * Allows choosing actor at runtime based on conditions
+ */
+export interface ActorStrategy {
+  // Strategy expression (ternary): $.fileSize > 1000000 ? "BlobStorage" : "CosmosStorage"
+  strategy: string
+  
+  // Or explicit mappings
+  when?: Array<{
+    condition: string
+    actor: string
+  }>
+  default?: string  // Fallback actor if no conditions match
+}
+
 export interface PipelineDefinition {
   name: string
   version?: string
@@ -44,7 +60,7 @@ export interface TriggerDefinition {
 
 export interface StageDefinition {
   name: string
-  actor: string  // Actor type/class to spawn
+  actor: string | ActorStrategy  // Actor type OR strategy-based selection
   
   // Execution mode (extensible via executor registry)
   mode: 'single' | 'scatter' | 'gather' | 'map-reduce' | 'broadcast' | 'fork-join' | 'human-approval' | string
@@ -56,14 +72,16 @@ export interface StageDefinition {
   scatter?: {
     input: string  // JSONPath expression to array
     as: string  // Variable name for each item
+    condition?: string  // Optional filter: JSONPath boolean expression (e.g., '$.item.status != "processed"')
   }
   
   // For gather mode: what to wait for
   gather?: {
-    stage: string  // Which stage to gather from
+    stage: string | string[]  // Single stage or multiple stages to gather from
     condition?: 'all' | 'any' | 'count'  // Default: 'all'
     count?: number  // For 'count' condition
     groupBy?: string  // Group results by field
+    combine?: 'concat' | 'object'  // How to combine multi-stage results (default: 'concat')
   }
   
   // Input mapping (from previous stages or trigger)

@@ -1,9 +1,9 @@
-import { Activity, Clock, Inbox, Trash2, Play, Pause } from 'lucide-react';
+import { Activity, Clock, Inbox, Trash2, Play } from 'lucide-react';
 import { ActorInfo } from '../types/loom';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { formatDuration, formatTimestamp, getStatusColor } from '@/lib/utils';
+import { formatTimestamp, getStatusColor } from '@/lib/utils';
 
 interface ActorCardProps {
   actor: ActorInfo;

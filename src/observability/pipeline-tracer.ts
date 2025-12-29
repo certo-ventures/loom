@@ -97,7 +97,7 @@ export class PipelineTracer {
       parentSpanId,
       pipelineId: traceId,
       stageId: stage.name,
-      actorType: stage.actor,
+      actorType: typeof stage.actor === 'string' ? stage.actor : undefined,
       spanType: 'stage',
       status: 'in-progress',
       startTime: new Date().toISOString(),

@@ -283,10 +283,11 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
       throw new Error(`Stage ${stage.name} missing gather config`)
     }
     
+    const targetStages = Array.isArray(stage.gather.stage) ? stage.gather.stage : [stage.gather.stage]
     console.log(`   🎯 GATHER: Barrier sync on stage ${stage.gather.stage}`)
     
     // Get outputs from target stage
-    const targetStageState = await this.getStageState(pipelineId, stage.gather.stage)
+    const targetStageState = await this.getStageState(pipelineId, targetStages[0])
     const targetOutputs = targetStageState.outputs
     
     console.log(`   📊 Collected ${targetOutputs.length} outputs from ${stage.gather.stage}`)

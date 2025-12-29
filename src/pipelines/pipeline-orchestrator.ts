@@ -199,12 +199,13 @@ export class PipelineOrchestrator {
     console.log(`\n📍 Executing stage: ${stage.name} (${stage.mode})`)
     
     // Check circuit breaker if configured
+    const actorType = typeof stage.actor === 'string' ? stage.actor : 'DynamicActor'
     if (stage.circuitBreaker) {
-      await this.circuitBreaker.setConfig(stage.actor, stage.circuitBreaker)
+      await this.circuitBreaker.setConfig(actorType, stage.circuitBreaker)
       
-      const allowed = await this.circuitBreaker.shouldAllow(stage.actor)
+      const allowed = await this.circuitBreaker.shouldAllow(actorType)
       if (!allowed) {
-        throw new Error(`Circuit breaker OPEN for actor: ${stage.actor}`)
+        throw new Error(`Circuit breaker OPEN for actor: ${actorType}`)
       }
       console.log(`   ⚡ Circuit breaker: CLOSED (allowing execution)`)
     }
@@ -274,189 +275,6 @@ export class PipelineOrchestrator {
   }
 
   /**
-   * Execute single actor stage
-   */
-  private async executeSingleStage(
-    pipelineId: string,
-    state: PipelineExecutionState,
-    stage: StageDefinition,
-    stageState: StageState
-  ): Promise<void> {
-    const input = this.resolveInput(stage.input, state.context)
-    
-    console.log(`   🎯 Single actor: ${stage.actor}`)
-    
-    // Create message
-    const message: PipelineMessage = {
-      messageId: uuidv4(),
-      from: pipelineId,
-      to: stage.actor,
-      type: 'execute',
-      payload: {
-        pipelineId,
-        stageName: stage.name,
-        taskIndex: 0,
-        input
-      },
-      timestamp: new Date().toISOString()
-    }
-    
-    stageState.expectedTasks = 1
-    
-    // Atomically write message + state to outbox
-    await this.outboxRelay.writeToOutbox(
-      pipelineId,
-      [{ queueName: `actor-${stage.actor}`, message, stage }],
-      [{ key: `pipeline:${pipelineId}:stage:${stage.name}`, value: JSON.stringify(stageState) }]
-    )
-    console.log(`   ✅ Message written to outbox for: actor-${stage.actor}`)
-  }
-
-  /**
-   * Execute scatter stage (FAN-OUT)
-   */
-  private async executeScatterStage(
-    pipelineId: string,
-    state: PipelineExecutionState,
-    stage: StageDefinition,
-    stageState: StageState
-  ): Promise<void> {
-    if (!stage.scatter) {
-      throw new Error(`Stage ${stage.name} missing scatter config`)
-    }
-    
-    // Resolve items to scatter over
-    let items = jp.query(state.context, stage.scatter.input)
-    
-    if (items.length > 0 && Array.isArray(items[0])) {
-      items = items.flat()
-    }
-    
-    console.log(`   🔀 SCATTER: Fan-out over ${items.length} items`)
-    console.log(`   📨 Enqueuing ${items.length} messages to BullMQ`)
-    
-    const messages: Array<{ queueName: string; message: PipelineMessage; stage: StageDefinition }> = []
-    
-    // Create messages for each item
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]
-      
-      // Create scoped context
-      const scopedContext = {
-        ...state.context,
-        [stage.scatter.as]: item
-      }
-      
-      const input = this.resolveInput(stage.input, scopedContext)
-      
-      const message: PipelineMessage = {
-        messageId: uuidv4(),
-        from: pipelineId,
-        to: stage.actor,
-        type: 'execute',
-        payload: {
-          pipelineId,
-          stageName: stage.name,
-          taskIndex: i,
-          input
-        },
-        timestamp: new Date().toISOString()
-      }
-      
-      messages.push({ queueName: `actor-${stage.actor}`, message, stage })
-    }
-    
-    stageState.expectedTasks = items.length
-    
-    // Atomically write all messages + state to outbox
-    await this.outboxRelay.writeToOutbox(
-      pipelineId,
-      messages,
-      [{ key: `pipeline:${pipelineId}:stage:${stage.name}`, value: JSON.stringify(stageState) }]
-    )
-    console.log(`   ✅ ${items.length} messages written to outbox for: actor-${stage.actor}`)
-  }
-
-  /**
-   * Execute gather stage (BARRIER + GROUP)
-   */
-  private async executeGatherStage(
-    pipelineId: string,
-    state: PipelineExecutionState,
-    stage: StageDefinition,
-    stageState: StageState
-  ): Promise<void> {
-    if (!stage.gather) {
-      throw new Error(`Stage ${stage.name} missing gather config`)
-    }
-    
-    console.log(`   🎯 GATHER: Collecting from stage ${stage.gather.stage}`)
-    
-    // Get outputs from target stage
-    const targetStageState = state.stageStates.get(stage.gather.stage)!
-    const targetOutputs = targetStageState.outputs
-    
-    console.log(`   📊 Collected ${targetOutputs.length} outputs`)
-    
-    // Group by key if specified
-    if (stage.gather.groupBy) {
-      const groups = new Map<string, any[]>()
-      
-      for (const item of targetOutputs) {
-        const groupKey = jp.value(item, stage.gather.groupBy)
-        if (!groups.has(groupKey)) {
-          groups.set(groupKey, [])
-        }
-        groups.get(groupKey)!.push(item)
-      }
-      
-      console.log(`   📦 Grouped into ${groups.size} groups by ${stage.gather.groupBy}`)
-      
-      const groupMessages: Array<{ queueName: string; message: PipelineMessage; stage: StageDefinition }> = []
-      
-      // Create messages for each group
-      let groupIndex = 0
-      for (const [key, items] of groups.entries()) {
-        const scopedContext = {
-          ...state.context,
-          group: { key, items }
-        }
-        
-        const input = this.resolveInput(stage.input, scopedContext)
-        
-        const message: PipelineMessage = {
-          messageId: uuidv4(),
-          from: pipelineId,
-          to: stage.actor,
-          type: 'execute',
-          payload: {
-            pipelineId,
-            stageName: stage.name,
-            taskIndex: groupIndex,
-            groupKey: key,
-            input
-          },
-          timestamp: new Date().toISOString()
-        }
-        
-        groupMessages.push({ queueName: `actor-${stage.actor}`, message, stage })
-        console.log(`      └─ Group "${key}": ${items.length} items`)
-        groupIndex++
-      }
-      
-      stageState.expectedTasks = groups.size
-      
-      // Atomically write all group messages + state to outbox
-      await this.outboxRelay.writeToOutbox(
-        pipelineId,
-        groupMessages,
-        [{ key: `pipeline:${pipelineId}:stage:${stage.name}`, value: JSON.stringify(stageState) }]
-      )
-      console.log(`   ✅ ${groups.size} group messages written to outbox for: actor-${stage.actor}`)
-    } else {
-      // No grouping - single consolidation
-      await this.executeSingleStage(pipelineId, state, stage, stageState)
-    }
   }
 
   /**

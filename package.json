@@ -18,6 +18,10 @@
       "types": "./dist/src/actor/index.d.ts",
       "import": "./dist/src/actor/index.js"
     },
+    "./authorization": {
+      "types": "./dist/src/authorization/index.d.ts",
+      "import": "./dist/src/authorization/index.js"
+    },
     "./ai": {
       "types": "./dist/src/ai/index.d.ts",
       "import": "./dist/src/ai/index.js"

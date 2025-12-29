@@ -11,15 +11,25 @@ import { JournalTimeline, JournalTimelinePlaceholder } from './components/journa
 import { MetricsDashboard } from './components/metrics-dashboard';
 import { TimeTravelDebugger } from './components/time-travel-debugger';
 import { useLoomConnection, useActors, useMetrics, useJournal } from './hooks/use-loom';
-import { useState } from 'react';
+import { useStudio, useActorJournal, useActorsList } from './stores/studio';
 
 function App() {
   const { theme, setTheme } = useTheme();
   const { isConnected, connectionStatus, error, reconnect } = useLoomConnection();
-  const { actors, loading: actorsLoading } = useActors();
-  const metrics = useMetrics();
-  const [selectedActorId, setSelectedActorId] = useState<string | null>(null);
-  const { entries: journalEntries, loading: journalLoading } = useJournal(selectedActorId);
+  
+  // Initialize WebSocket subscriptions (these hooks now populate the store)
+  useActors();
+  useMetrics();
+  
+  // Use store selectors for state
+  const selectedActorId = useStudio((state) => state.selectedActorId);
+  const selectActor = useStudio((state) => state.selectActor);
+  const actors = useActorsList();
+  const metrics = useStudio((state) => state.metrics);
+  
+  // Subscribe to journal for selected actor
+  useJournal(selectedActorId);
+  const journalEntries = useActorJournal(selectedActorId);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -360,8 +370,8 @@ function App() {
                 {isConnected ? (
                   <ActorList 
                     actors={actors} 
-                    loading={actorsLoading}
-                    onSelectActor={setSelectedActorId}
+                    loading={false}
+                    onSelectActor={selectActor}
                   />
                 ) : (
                   <div className="text-center py-12">
@@ -402,7 +412,7 @@ function App() {
                 {actors && actors.length > 0 ? (
                   <ActorNetwork 
                     actors={actors}
-                    onSelectActor={setSelectedActorId}
+                    onSelectActor={selectActor}
                   />
                 ) : (
                   <ActorNetworkPlaceholder />
@@ -444,7 +454,7 @@ function App() {
                   {journalEntries && journalEntries.length > 0 ? (
                     <JournalTimeline 
                       entries={journalEntries}
-                      loading={journalLoading}
+                      loading={false}
                     />
                   ) : (
                     <JournalTimelinePlaceholder />

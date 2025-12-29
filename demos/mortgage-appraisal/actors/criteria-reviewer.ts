@@ -41,13 +41,35 @@ export class CriteriaReviewerActor extends Actor {
         `[${this.context.actorId}] Agent ${typedInput.agentName} (${typedInput.llmModel}) reviewing criterion: ${typedInput.criterion.id}`
       );
 
-      // Build review prompt
-      const prompt = this.buildReviewPrompt(typedInput);
+      // 1. Check semantic cache (saves LLM call if hit)
+      const cacheKey = `criterion:${typedInput.criterion.id}:property:${typedInput.appraisalData.propertyType}`;
+      const cached = await this.memory.checkCache(cacheKey);
+      
+      if (cached) {
+        console.log(`[${this.context.actorId}] 💾 Cache hit! Saved LLM call`);
+        this.state.success = true;
+        this.state.review = cached;
+        return;
+      }
 
-      // Call LLM to evaluate criterion
+      // 2. Recall similar past evaluations (adds context)
+      const similarQuery = `${typedInput.criterion.criterion} ${typedInput.appraisalData.propertyType}`;
+      const similarEvaluations = await this.memory.recall(similarQuery, {
+        category: 'criterion-evaluation',
+        limit: 3,
+      });
+      
+      if (similarEvaluations.length > 0) {
+        console.log(`[${this.context.actorId}] 📚 Found ${similarEvaluations.length} similar evaluations`);
+      }
+
+      // 3. Build review prompt (with context from memory)
+      const prompt = this.buildReviewPrompt(typedInput, similarEvaluations);
+
+      // 4. Call LLM to evaluate criterion
       const llmResponse = await this.callLLM(prompt, typedInput.llmModel);
 
-      // Parse review result
+      // 5. Parse review result
       const review = this.parseReviewResult(llmResponse, typedInput);
 
       console.log(
@@ -59,6 +81,18 @@ export class CriteriaReviewerActor extends Actor {
       }
       console.log('');
 
+      // 6. Store in memory for future recall
+      await this.memory.remember({
+        memory: `Criterion ${review.criterionId}: ${review.evaluation}`,
+        content: JSON.stringify(review),
+      }, {
+        importance: review.evaluation === 'fail' ? 'high' : 'medium',
+        category: 'criterion-evaluation',
+      });
+
+      // 7. Cache for future similar queries
+      await this.memory.cache(cacheKey, review, { ttl: 3600 });
+
       this.state.success = true;
       this.state.review = review;
     } catch (error) {
@@ -68,10 +102,10 @@ export class CriteriaReviewerActor extends Actor {
     }
   }
 
-  private buildReviewPrompt(input: CriteriaReviewerInput): string {
+  private buildReviewPrompt(input: CriteriaReviewerInput, similarEvaluations: any[] = []): string {
     const { appraisalData, criterion } = input;
 
-    return `You are a mortgage appraisal quality reviewer. Evaluate whether this appraisal meets the following criterion.
+    let prompt = `You are a mortgage appraisal quality reviewer. Evaluate whether this appraisal meets the following criterion.
 
 CRITERION:
 Category: ${criterion.category}
@@ -99,6 +133,18 @@ ${appraisalData.comparableSales.map((comp, idx) => `
      Square Footage: ${comp.squareFootage}
      Adjustments: $${comp.adjustments.toLocaleString()}
 `).join('\n')}
+${similarEvaluations.length > 0 ? `
+
+SIMILAR PAST EVALUATIONS (for context):
+${similarEvaluations.slice(0, 2).map((mem: any, idx: number) => {
+  try {
+    const past = typeof mem.content === 'string' ? JSON.parse(mem.content) : mem.content;
+    return `${idx + 1}. ${past.evaluation?.toUpperCase() || 'N/A'} - ${past.reasoning?.substring(0, 150) || mem.memory}`;
+  } catch {
+    return `${idx + 1}. ${mem.memory}`;
+  }
+}).join('\n')}
+` : ''}
 
 Evaluate this criterion and respond with JSON in this format:
 {
@@ -109,6 +155,8 @@ Evaluate this criterion and respond with JSON in this format:
 }
 
 Be thorough, objective, and cite specific data points from the appraisal in your reasoning.`;
+    
+    return prompt;
   }
 
   private async callLLM(prompt: string, model: string): Promise<string> {

@@ -8,10 +8,12 @@ import type { MessageQueue } from './message-queue'
 import type { StateStore } from './state-store'
 import type { CoordinationAdapter } from './coordination-adapter'
 import type { BlobStore } from './blob-store'
+import type { JournalStore } from './journal-store'
 import { InMemoryMessageQueue } from './in-memory-message-queue'
 import { InMemoryStateStore } from './in-memory-state-store'
 import { InMemoryCoordinationAdapter } from './in-memory-coordination-adapter'
 import { InMemoryBlobStore } from './in-memory-blob-store'
+import { InMemoryJournalStore } from './in-memory-journal-store'
 
 /**
  * Adapter configuration
@@ -35,6 +37,11 @@ export interface AdapterConfig {
   blobStore?: {
     type: 'azure' | 'inmemory'
     azure?: { storageAccountUrl: string; container: string }
+  }
+  
+  journalStore?: {
+    type: 'redis' | 'inmemory'
+    redis?: { host: string; port: number }
   }
 }
 
@@ -138,6 +145,30 @@ export class AdapterFactory {
   }
   
   /**
+   * Create JournalStore adapter (optional)
+   */
+  static createJournalStore(
+    config?: AdapterConfig['journalStore']
+  ): JournalStore | undefined {
+    if (!config) {
+      return undefined // Journal persistence is optional
+    }
+    
+    if (config.type === 'inmemory') {
+      return new InMemoryJournalStore()
+    }
+    
+    if (config.type === 'redis') {
+      const { RedisJournalStore } = require('./redis-journal-store')
+      const Redis = require('ioredis')
+      const redis = new Redis(config.redis || { host: 'localhost', port: 6379 })
+      return new RedisJournalStore(redis)
+    }
+    
+    throw new Error(`Unknown JournalStore type: ${config.type}`)
+  }
+
+  /**
    * Create all adapters from configuration
    */
   static createAll(config: AdapterConfig) {
@@ -146,6 +177,7 @@ export class AdapterFactory {
       stateStore: this.createStateStore(config.stateStore),
       coordinationAdapter: this.createCoordinationAdapter(config.coordinationAdapter),
       blobStore: this.createBlobStore(config.blobStore),
+      journalStore: this.createJournalStore(config.journalStore),
     }
   }
 }

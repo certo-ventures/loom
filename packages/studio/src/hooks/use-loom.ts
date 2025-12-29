@@ -1,72 +1,83 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { loomClient } from '../lib/loom-client';
+import { useStudio } from '../stores/studio';
 import { ActorInfo, MetricsData, HealthStatus, JournalEntry, TraceEvent } from '../types/loom';
 
+/**
+ * Hook to manage WebSocket connection and sync with store
+ * Call this once at the app level to establish connection
+ */
 export function useLoomConnection() {
-  const [isConnected, setIsConnected] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
-  const [error, setError] = useState<Error | null>(null);
+  const isConnected = useStudio((state) => state.isConnected);
+  const connectionStatus = useStudio((state) => state.connectionStatus);
+  const error = useStudio((state) => state.connectionError);
+  const setConnection = useStudio((state) => state.setConnection);
 
   useEffect(() => {
     const handleConnection = (data: any) => {
-      setIsConnected(data.status === 'connected');
-      setConnectionStatus(data.status);
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setError(null);
-      }
+      setConnection(data.status, data.error);
     };
 
     loomClient.on('connection', handleConnection);
 
     // Attempt initial connection
-    setConnectionStatus('connecting');
+    setConnection('connecting');
     loomClient.connect().catch(err => {
-      setError(err);
-      setConnectionStatus('error');
+      setConnection('error', err);
     });
 
     return () => {
       loomClient.off('connection', handleConnection);
     };
-  }, []);
+  }, [setConnection]);
 
   const reconnect = useCallback(() => {
-    setConnectionStatus('connecting');
-    setError(null);
+    setConnection('connecting');
     loomClient.connect().catch(err => {
-      setError(err);
-      setConnectionStatus('error');
+      setConnection('error', err);
     });
-  }, []);
+  }, [setConnection]);
 
   return { isConnected, connectionStatus, error, reconnect };
 }
 
+/**
+ * Hook to sync actors from WebSocket to store
+ * Call this once at the app level
+ */
 export function useActors() {
-  const [actors, setActors] = useState<ActorInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const setActors = useStudio((state) => state.setActors);
+  const updateActor = useStudio((state) => state.updateActor);
 
   useEffect(() => {
     const handleActors = (data: ActorInfo[]) => {
       setActors(data);
-      setLoading(false);
+    };
+
+    const handleActorUpdate = (data: ActorInfo) => {
+      updateActor(data);
     };
 
     loomClient.subscribeToActors(handleActors);
     loomClient.on('actors', handleActors);
+    loomClient.on('actor:updated', handleActorUpdate);
 
     return () => {
       loomClient.off('actors', handleActors);
+      loomClient.off('actor:updated', handleActorUpdate);
     };
-  }, []);
+  }, [setActors, updateActor]);
 
-  return { actors, loading };
+  // Components should use useStudio directly, not this hook's return value
+  return null;
 }
 
+/**
+ * Hook to sync metrics from WebSocket to store
+ * Call this once at the app level
+ */
 export function useMetrics() {
-  const [metrics, setMetrics] = useState<MetricsData | null>(null);
+  const setMetrics = useStudio((state) => state.setMetrics);
 
   useEffect(() => {
     const handleMetrics = (data: MetricsData) => {
@@ -79,9 +90,10 @@ export function useMetrics() {
     return () => {
       loomClient.off('metrics', handleMetrics);
     };
-  }, []);
+  }, [setMetrics]);
 
-  return metrics;
+  // Components should use useStudio directly, not this hook's return value
+  return null;
 }
 
 export function useHealth() {
@@ -103,31 +115,39 @@ export function useHealth() {
   return health;
 }
 
+/**
+ * Hook to sync journal entries from WebSocket to store
+ * Call this for each actor being monitored
+ */
 export function useJournal(actorId: string | null) {
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const setJournalEntries = useStudio((state) => state.setJournalEntries);
+  const addJournalEntry = useStudio((state) => state.addJournalEntry);
 
   useEffect(() => {
     if (!actorId) {
-      setEntries([]);
-      setLoading(false);
       return;
     }
 
     const handleJournal = (data: JournalEntry[]) => {
-      setEntries(data);
-      setLoading(false);
+      setJournalEntries(actorId, data);
+    };
+
+    const handleJournalEntry = (data: JournalEntry) => {
+      addJournalEntry(actorId, data);
     };
 
     loomClient.subscribeToJournal(actorId, handleJournal);
     loomClient.on(`journal:${actorId}`, handleJournal);
+    loomClient.on(`journal:${actorId}:entry`, handleJournalEntry);
 
     return () => {
       loomClient.off(`journal:${actorId}`, handleJournal);
+      loomClient.off(`journal:${actorId}:entry`, handleJournalEntry);
     };
-  }, [actorId]);
+  }, [actorId, setJournalEntries, addJournalEntry]);
 
-  return { entries, loading };
+  // Components should use useActorJournal selector, not this hook's return value
+  return null;
 }
 
 export function useTraces(correlationId: string | null) {
