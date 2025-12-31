@@ -3,39 +3,57 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { Redis } from 'ioredis'
 import { BullMQMessageQueue } from '../../storage/bullmq-message-queue'
 import { InMemoryActorRegistry } from '../../discovery'
 import { PipelineOrchestrator } from '../../pipelines/pipeline-orchestrator'
 import { PipelineActorWorker } from '../../pipelines/pipeline-actor-worker'
 import type { PipelineDefinition } from '../../pipelines/pipeline-dsl'
+import { RedisPipelineStateStore } from '../../pipelines/pipeline-state-store'
+import { createIsolatedRedis, type RedisTestContext } from '../utils/redis-test-utils'
+
+async function waitFor(
+  condition: () => Promise<boolean> | boolean,
+  timeoutMs = 8000,
+  intervalMs = 50
+): Promise<void> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    if (await condition()) {
+      return
+    }
+    await new Promise(resolve => setTimeout(resolve, intervalMs))
+  }
+  throw new Error('Condition not met within timeout')
+}
 
 describe('Multi-Stage Gather', () => {
-  let redis: Redis
+  let redisContext: RedisTestContext
   let messageQueue: BullMQMessageQueue
   let orchestrator: PipelineOrchestrator
   let worker: PipelineActorWorker
+  let stateStore: RedisPipelineStateStore
 
   beforeEach(async () => {
-    redis = new Redis('redis://localhost:6379', {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false
+    redisContext = await createIsolatedRedis()
+
+    messageQueue = new BullMQMessageQueue(redisContext.queueRedis, {
+      prefix: redisContext.queuePrefix
     })
-    
-    const keys = await redis.keys('pipeline:*')
-    if (keys.length > 0) await redis.del(...keys)
-    const bullKeys = await redis.keys('bull:*')
-    if (bullKeys.length > 0) await redis.del(...bullKeys)
-    
-    messageQueue = new BullMQMessageQueue(redis)
-    orchestrator = new PipelineOrchestrator(messageQueue, new InMemoryActorRegistry(), redis)
-    worker = new PipelineActorWorker(messageQueue)
+    stateStore = new RedisPipelineStateStore(redisContext.stateRedis)
+    orchestrator = new PipelineOrchestrator(
+      messageQueue,
+      new InMemoryActorRegistry(),
+      redisContext.stateRedis,
+      stateStore
+    )
+    worker = new PipelineActorWorker(messageQueue, stateStore)
   })
 
   afterEach(async () => {
     await worker.close()
     await messageQueue.close()
-    await redis.quit()
+    await redisContext.queueRedis.quit()
+    await redisContext.stateRedis.quit()
   })
 
   it('should gather from multiple stages with concat mode', async () => {
@@ -103,7 +121,7 @@ describe('Multi-Stage Gather', () => {
       items: [{ value: 10 }, { value: 20 }]
     })
 
-    await new Promise(resolve => setTimeout(resolve, 2000))
+    await waitFor(() => consolidatedData.length === 4)
 
     // Should have 4 items total: 2 from A, 2 from B
     expect(consolidatedData).toHaveLength(4)
@@ -182,7 +200,7 @@ describe('Multi-Stage Gather', () => {
       pages: ['page1', 'page2']
     })
 
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    await waitFor(() => Object.keys(consolidatedData).length === 2)
 
     // Should have object with two keys
     expect(consolidatedData).toHaveProperty('extract-text')
@@ -270,7 +288,7 @@ describe('Multi-Stage Gather', () => {
       document: 'test-doc.pdf'
     })
 
-    await new Promise(resolve => setTimeout(resolve, 2500))
+    await waitFor(() => Boolean(finalResult.classify && finalResult.extract && finalResult.validate))
 
     expect(finalResult).toHaveProperty('classify')
     expect(finalResult).toHaveProperty('extract')
