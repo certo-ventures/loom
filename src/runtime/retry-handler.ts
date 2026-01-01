@@ -1,5 +1,6 @@
 import type { Message, RetryPolicy } from '../types'
 import type { MessageQueue } from '../storage'
+import type { MetricsCollector } from '../observability/types'
 
 /**
  * RetryHandler - Manages retry logic for failed operations
@@ -13,7 +14,8 @@ import type { MessageQueue } from '../storage'
 export class RetryHandler {
   constructor(
     private messageQueue: MessageQueue,
-    private defaultPolicy: RetryPolicy
+    private defaultPolicy: RetryPolicy,
+    private metricsCollector?: MetricsCollector
   ) {}
 
   /**
@@ -58,10 +60,15 @@ export class RetryHandler {
     const retryCount = message.metadata.retryCount || 0
     const maxRetries = message.metadata.maxRetries ?? effectivePolicy.maxRetries
 
+    // Record failure metric
+    this.metricsCollector?.recordMessageEvent?.('retry_evaluation')
+
     // Check if we should retry
     if (retryCount < maxRetries && this.isRetryable(error, effectivePolicy)) {
+      this.metricsCollector?.recordMessageEvent?.('retry_scheduled')
       await this.scheduleRetry(message, queue, retryCount, effectivePolicy)
     } else {
+      this.metricsCollector?.recordMessageEvent?.('moved_to_dlq')
       await this.sendToDeadLetter(message, error, queue)
     }
   }
@@ -136,11 +143,19 @@ export class RetryHandler {
     
     for (let attempt = 0; attempt <= effectivePolicy.maxRetries; attempt++) {
       try {
-        return await operation()
+        if (attempt > 0) {
+          this.metricsCollector?.recordMessageEvent?.('retry_attempt')
+        }
+        const result = await operation()
+        if (attempt > 0) {
+          this.metricsCollector?.recordMessageEvent?.('retry_success')
+        }
+        return result
       } catch (error) {
         lastError = error as Error
         
         if (attempt === effectivePolicy.maxRetries || !this.isRetryable(lastError, effectivePolicy)) {
+          this.metricsCollector?.recordMessageEvent?.('retry_exhausted')
           throw lastError
         }
 

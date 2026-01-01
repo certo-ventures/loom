@@ -180,6 +180,8 @@ export abstract class Actor {
 }
 ```
 
+> **Note:** `SimpleState` now exposes async methods. Always `await this.simpleState.get()`/`set()` inside actor logic to avoid race conditions and to support remote state providers.
+
 ### Integration Point 3: SagaCoordinator
 
 **File**: `src/pipelines/saga-coordinator.ts`

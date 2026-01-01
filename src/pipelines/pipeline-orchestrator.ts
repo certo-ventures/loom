@@ -5,6 +5,7 @@
  */
 import { BullMQMessageQueue } from '../storage/bullmq-message-queue'
 import { ActorRegistry } from '../discovery'
+import type { MetricsCollector } from '../observability/types'
 import { PipelineDefinition, StageDefinition, StageRetryPolicy } from './pipeline-dsl'
 import type { PipelineMessage, ScheduledTaskRequest } from './stage-executor'
 import { Redis } from 'ioredis'
@@ -42,17 +43,20 @@ export class PipelineOrchestrator {
   private resumePromise: Promise<void>
   private readonly deadLetterWorkers = new Set<string>()
   private readonly deadLetterArchiveLimit = 100
+  private readonly metricsCollector?: MetricsCollector
 
   constructor(
     messageQueue: BullMQMessageQueue,
     actorRegistry: ActorRegistry,
     redis: Redis,
-    stateStore: PipelineStateStore
+    stateStore: PipelineStateStore,
+    options?: { metricsCollector?: MetricsCollector }
   ) {
     this.messageQueue = messageQueue
     this.actorRegistry = actorRegistry
     this.redis = redis
     this.stateStore = stateStore
+    this.metricsCollector = options?.metricsCollector
     this.circuitBreaker = new CircuitBreakerManager(redis, messageQueue)
     this.sagaCoordinator = new SagaCoordinator(redis, messageQueue)
     this.executors = new Map<string, StageExecutor>([
@@ -133,6 +137,9 @@ export class PipelineOrchestrator {
     }
     
     // Initialize pipeline state
+    const stageMap = new Map(definition.stages.map(stage => [stage.name, stage]))
+    const stageGraph = this.buildStageGraph(definition)
+
     const state: PipelineExecutionState = {
       pipelineId,
       definition,
@@ -140,8 +147,10 @@ export class PipelineOrchestrator {
         trigger: triggerData,
         stages: {}
       },
-      currentStageIndex: 0,
-      stageStates: new Map()
+      stageStates: new Map(),
+      stageMap,
+      stageGraph,
+      activeStages: new Set()
     }
     
     // Initialize stage states
@@ -164,7 +173,8 @@ export class PipelineOrchestrator {
       pipelineId,
       definition,
       triggerData,
-      metadata: options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : undefined
+      metadata: options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : undefined,
+      activeStages: []
     })
 
     await Promise.all(
@@ -189,12 +199,12 @@ export class PipelineOrchestrator {
       JSON.stringify({
         definition,
         context: state.context,
-        currentStageIndex: 0
+        activeStages: []
       })
     )
     
-    // Start first stage
-    await this.executeStage(pipelineId, definition.stages[0])
+    // Start all entry stages in the DAG
+    await this.startStages(pipelineId, stageGraph.entryStages)
     
     return pipelineId
   }
@@ -207,8 +217,15 @@ export class PipelineOrchestrator {
       return
     }
 
-    const state = this.pipelines.get(pipelineId)!
-    const stageState = state.stageStates.get(stage.name)!
+    const state = this.pipelines.get(pipelineId)
+    if (!state) {
+      return
+    }
+
+    const stageState = state.stageStates.get(stage.name)
+    if (!stageState || stageState.status === 'running' || stageState.status === 'completed') {
+      return
+    }
     
     console.log(`\n📍 Executing stage: ${stage.name} (${stage.mode})`)
     
@@ -228,9 +245,11 @@ export class PipelineOrchestrator {
     stageState.startedAt = Date.now()
     stageState.outputs = []
 
+    state.activeStages.add(stage.name)
+
     await this.stateStore.clearStageOutputs(pipelineId, stage.name, stageState.attempt)
 
-    await this.updatePipelineCursor(pipelineId, stage.name)
+    await this.updatePipelineCursor(pipelineId, Array.from(state.activeStages))
 
     await this.stateStore.updateStageProgress({
       pipelineId,
@@ -274,56 +293,45 @@ export class PipelineOrchestrator {
     if (result.expectedTasks === 0 && result.metadata?.synchronousResult) {
       console.log(`   ⚡ Synchronous stage completed immediately`)
       
-      // Store result and complete stage immediately
       await this.stateStore.appendStageOutput(pipelineId, stage.name, stageState.attempt, result.metadata.synchronousResult)
       stageState.outputs.push(result.metadata.synchronousResult)
       stageState.completedTasks = 1
-      stageState.status = 'completed'
-      stageState.completedAt = Date.now()
-      state.context.stages[stage.name] = stageState.outputs
-      
-      // Record compensation if configured (saga pattern)
-      if (stage.compensation) {
-        await this.sagaCoordinator.recordCompensation(
-          pipelineId,
-          stage,
-          stageState.outputs
-        )
-      }
-      
-      await this.stateStore.updateStageProgress({
-        pipelineId,
-        stageName: stage.name,
-        status: 'completed',
-        completedAt: stageState.completedAt,
-        completedTasksDelta: stageState.completedTasks
-      })
 
-      await this.stateStore.snapshotContext(pipelineId, state.context)
-
-      // Move to next stage immediately
-      const currentIndex = state.definition.stages.findIndex(s => s.name === stage.name)
-      if (currentIndex < state.definition.stages.length - 1) {
-        const nextStage = state.definition.stages[currentIndex + 1]
-        
-        try {
-          await this.executeStage(pipelineId, nextStage)
-        } catch (error) {
-          console.error(`\n❌ Stage ${nextStage.name} failed:`, error)
-          await this.handlePipelineFailure(pipelineId, error)
-        }
-      } else {
-        console.log(`\n🎉 Pipeline ${pipelineId} COMPLETED`)
-        await this.sagaCoordinator.clearCompensations(pipelineId)
-        await this.stateStore.setPipelineStatus(pipelineId, 'completed', {
-          currentStage: undefined,
-          resumeCursor: undefined
-        })
-        this.pipelines.delete(pipelineId)
-      }
+      await this.completeStage(pipelineId, stage, stageState, undefined, stageState.completedTasks)
     }
     
     await this.redis.set(`${pipelineId}:stage:${stage.name}`, JSON.stringify(stageState))
+  }
+
+  private async startStages(pipelineId: string, stageNames: string[]): Promise<void> {
+    if (stageNames.length === 0) {
+      return
+    }
+
+    const state = this.pipelines.get(pipelineId)
+    if (!state) {
+      return
+    }
+
+    for (const stageName of stageNames) {
+      const stageDef = state.stageMap.get(stageName)
+      const stageState = stageDef ? state.stageStates.get(stageName) : undefined
+      if (!stageDef || !stageState || stageState.status !== 'pending') {
+        continue
+      }
+
+      if (!this.areDependenciesMet(state, stageName)) {
+        continue
+      }
+
+      try {
+        await this.executeStage(pipelineId, stageDef)
+      } catch (error) {
+        console.error(`\n❌ Stage ${stageName} failed:`, error)
+        await this.handlePipelineFailure(pipelineId, error)
+        return
+      }
+    }
   }
 
   private async scheduleStageTask(
@@ -442,6 +450,8 @@ export class PipelineOrchestrator {
       delay: delayMs
     })
 
+    this.metricsCollector?.recordMessageEvent('sent')
+
     await this.stateStore.recordTaskAttempt({
       pipelineId,
       stageName: stage.name,
@@ -533,18 +543,23 @@ export class PipelineOrchestrator {
     return base
   }
 
-  private async updatePipelineCursor(pipelineId: string, stageName?: string): Promise<void> {
+  private async updatePipelineCursor(pipelineId: string, activeStages: string[]): Promise<void> {
+    const normalized = activeStages.filter(Boolean)
+    const primary = normalized[0]
+
     await this.stateStore.setPipelineStatus(
       pipelineId,
       'running',
-      stageName
+      normalized.length > 0
         ? {
-            currentStage: stageName,
-            resumeCursor: { stageName }
+            currentStage: primary,
+            resumeCursor: { stageName: primary, stageNames: normalized },
+            activeStages: normalized
           }
         : {
             currentStage: undefined,
-            resumeCursor: undefined
+            resumeCursor: undefined,
+            activeStages: []
           }
     )
   }
@@ -588,7 +603,12 @@ export class PipelineOrchestrator {
         stages: {}
       }
 
+      const stageMap = new Map(record.definition.stages.map(stage => [stage.name, stage]))
+      const stageGraph = this.buildStageGraph(record.definition)
       const stageStates = new Map<string, StageState>()
+      const runningStages: string[] = []
+      const pendingStages: string[] = []
+
       for (const stageDef of record.definition.stages) {
         const persistedStage = await this.stateStore.getStage(pipelineId, stageDef.name)
         const attempt = persistedStage?.attempt ?? 1
@@ -597,6 +617,11 @@ export class PipelineOrchestrator {
           outputs = context.stages?.[stageDef.name] || []
         } else if (persistedStage) {
           outputs = await this.stateStore.getStageOutputs(pipelineId, stageDef.name, attempt)
+        }
+        if (persistedStage?.status === 'running') {
+          runningStages.push(stageDef.name)
+        } else if ((persistedStage?.status ?? 'pending') === 'pending') {
+          pendingStages.push(stageDef.name)
         }
         stageStates.set(stageDef.name, {
           stageName: stageDef.name,
@@ -612,24 +637,32 @@ export class PipelineOrchestrator {
         })
       }
 
-      const currentStageIndex = this.computeCurrentStageIndex(record, stageStates)
+      const activeStages = new Set(runningStages)
 
-      this.pipelines.set(pipelineId, {
+      const pipelineState: PipelineExecutionState = {
         pipelineId,
         definition: record.definition,
         context,
-        currentStageIndex,
-        stageStates
-      })
+        stageStates,
+        stageMap,
+        stageGraph,
+        activeStages
+      }
 
-      const currentStageName = record.currentStage
-        ?? record.stageOrder.find(name => stageStates.get(name)?.status !== 'completed')
+      this.pipelines.set(pipelineId, pipelineState)
 
-      if (currentStageName) {
-        const stageDef = record.definition.stages.find(stage => stage.name === currentStageName)
+      for (const stageName of runningStages) {
+        const stageDef = stageMap.get(stageName)
         if (stageDef) {
           await this.resumeStage(pipelineId, stageDef)
         }
+      }
+
+      await this.updatePipelineCursor(pipelineId, Array.from(activeStages))
+
+      const readyPending = pendingStages.filter(stageName => this.areDependenciesMet(pipelineState, stageName))
+      if (readyPending.length > 0) {
+        await this.startStages(pipelineId, readyPending)
       }
     }
   }
@@ -656,6 +689,10 @@ export class PipelineOrchestrator {
     }
 
     if (stageState.status === 'running') {
+      if (!state.activeStages.has(stage.name)) {
+        state.activeStages.add(stage.name)
+        await this.updatePipelineCursor(pipelineId, Array.from(state.activeStages))
+      }
       const pendingTasks = await this.stateStore.getPendingTasks(pipelineId, stage.name)
       const failedTasks = pendingTasks.filter(task => task.status === 'failed')
       if (failedTasks.length === 0) {
@@ -679,22 +716,6 @@ export class PipelineOrchestrator {
         })
       }
     }
-  }
-
-  private computeCurrentStageIndex(record: PipelineRecord, stageStates: Map<string, StageState>): number {
-    if (record.currentStage) {
-      const idx = record.stageOrder.indexOf(record.currentStage)
-      if (idx >= 0) {
-        return idx
-      }
-    }
-
-    const firstIncompleteIndex = record.stageOrder.findIndex(stageName => {
-      const stageState = stageStates.get(stageName)
-      return stageState?.status !== 'completed'
-    })
-
-    return firstIncompleteIndex >= 0 ? firstIncompleteIndex : record.stageOrder.length - 1
   }
 
   /**
@@ -775,54 +796,7 @@ export class PipelineOrchestrator {
       console.log(`   🎯 BARRIER RELEASED: Stage ${stageName} complete`)
       const persistedOutputs = await this.stateStore.getStageOutputs(pipelineId, stageName, stageState.attempt)
       stageState.outputs = persistedOutputs
-      stageState.status = 'completed'
-      stageState.completedAt = Date.now()
-      
-      // Store outputs in context
-      state.context.stages[stageName] = stageState.outputs
-      
-      // Record compensation for successful stage (saga pattern)
-      if (stage.compensation) {
-        await this.sagaCoordinator.recordCompensation(
-          pipelineId,
-          stage,
-          stageState.outputs
-        )
-      }
-      
-      await this.stateStore.updateStageProgress({
-        pipelineId,
-        stageName,
-        status: 'completed',
-        completedAt: stageState.completedAt
-      })
-
-      await this.stateStore.snapshotContext(pipelineId, state.context)
-
-      // Move to next stage
-      const currentIndex = state.definition.stages.findIndex(s => s.name === stageName)
-      if (currentIndex < state.definition.stages.length - 1) {
-        const nextStage = state.definition.stages[currentIndex + 1]
-        
-        try {
-          await this.executeStage(pipelineId, nextStage)
-        } catch (error) {
-          // Stage failed - trigger saga rollback
-          console.error(`\n❌ Stage ${nextStage.name} failed:`, error)
-          await this.handlePipelineFailure(pipelineId, error)
-        }
-      } else {
-        console.log(`\n🎉 Pipeline ${pipelineId} COMPLETED`)
-        
-        // Clear compensations on successful completion
-        await this.sagaCoordinator.clearCompensations(pipelineId)
-        await this.stateStore.setPipelineStatus(pipelineId, 'completed', {
-          currentStage: undefined,
-          resumeCursor: undefined
-        })
-        
-        this.pipelines.delete(pipelineId)
-      }
+      await this.completeStage(pipelineId, stage, stageState, persistedOutputs)
     }
   }
 
@@ -973,6 +947,190 @@ export class PipelineOrchestrator {
     }
   }
 
+  private async completeStage(
+          pipelineId: string,
+          stage: StageDefinition,
+          stageState: StageState,
+          persistedOutputs?: any[],
+          completedTasksDelta = 0
+        ): Promise<void> {
+          const state = this.pipelines.get(pipelineId)
+          if (!state) {
+            return
+          }
+
+          const outputs = persistedOutputs ?? await this.stateStore.getStageOutputs(pipelineId, stage.name, stageState.attempt)
+          stageState.outputs = outputs
+          stageState.status = 'completed'
+          stageState.completedAt = Date.now()
+          state.context.stages[stage.name] = outputs
+
+          if (stage.compensation) {
+            await this.sagaCoordinator.recordCompensation(pipelineId, stage, outputs)
+          }
+
+          await this.stateStore.updateStageProgress({
+            pipelineId,
+            stageName: stage.name,
+            status: 'completed',
+            completedAt: stageState.completedAt,
+            completedTasksDelta
+          })
+
+          await this.stateStore.snapshotContext(pipelineId, state.context)
+
+          state.activeStages.delete(stage.name)
+          await this.updatePipelineCursor(pipelineId, Array.from(state.activeStages))
+
+          await this.startNextStagesIfReady(pipelineId, stage.name)
+        }
+
+        private async startNextStagesIfReady(pipelineId: string, completedStage: string): Promise<void> {
+          const state = this.pipelines.get(pipelineId)
+          if (!state) {
+            return
+          }
+
+          const dependents = Array.from(state.stageGraph.dependents.get(completedStage) ?? [])
+          const ready = dependents.filter(stageName => this.areDependenciesMet(state, stageName))
+          if (ready.length > 0) {
+            await this.startStages(pipelineId, ready)
+          }
+
+          if (this.allStagesCompleted(state) && state.activeStages.size === 0) {
+            await this.finalizePipelineSuccess(pipelineId)
+          }
+        }
+
+        private areDependenciesMet(state: PipelineExecutionState, stageName: string): boolean {
+          const deps = state.stageGraph.dependencies.get(stageName)
+          if (!deps || deps.size === 0) {
+            return true
+          }
+          for (const dependency of deps) {
+            const dependencyState = state.stageStates.get(dependency)
+            if (!dependencyState || dependencyState.status !== 'completed') {
+              return false
+            }
+          }
+          return true
+        }
+
+        private allStagesCompleted(state: PipelineExecutionState): boolean {
+          for (const stageState of state.stageStates.values()) {
+            if (stageState.status !== 'completed') {
+              return false
+            }
+          }
+          return true
+        }
+
+        private async finalizePipelineSuccess(pipelineId: string): Promise<void> {
+          console.log(`\n🎉 Pipeline ${pipelineId} COMPLETED`)
+          await this.sagaCoordinator.clearCompensations(pipelineId)
+          await this.stateStore.setPipelineStatus(pipelineId, 'completed', {
+            currentStage: undefined,
+            resumeCursor: undefined,
+            activeStages: []
+          })
+          this.pipelines.delete(pipelineId)
+        }
+
+        private buildStageGraph(definition: PipelineDefinition): StageGraphMetadata {
+          const dependencies = new Map<string, Set<string>>()
+          const dependents = new Map<string, Set<string>>()
+          const stageNames = new Set<string>()
+
+          definition.stages.forEach((stage, index) => {
+            if (stageNames.has(stage.name)) {
+              throw new Error(`Duplicate stage name detected: ${stage.name}`)
+            }
+            stageNames.add(stage.name)
+            const resolvedDependencies = this.resolveStageDependencies(stage, index, definition)
+            const normalized = new Set(resolvedDependencies.filter(Boolean))
+            dependencies.set(stage.name, normalized)
+            for (const dependency of normalized) {
+              if (!dependents.has(dependency)) {
+                dependents.set(dependency, new Set())
+              }
+              dependents.get(dependency)!.add(stage.name)
+            }
+          })
+
+          for (const [stageName, deps] of dependencies.entries()) {
+            for (const dependency of deps) {
+              if (!dependencies.has(dependency)) {
+                throw new Error(`Stage ${stageName} depends on unknown stage ${dependency}`)
+              }
+            }
+          }
+
+          const indegree = new Map<string, number>()
+          for (const [stageName, deps] of dependencies.entries()) {
+            indegree.set(stageName, deps.size)
+          }
+
+          const queue: string[] = []
+          indegree.forEach((value, key) => {
+            if (value === 0) {
+              queue.push(key)
+            }
+          })
+
+          const visited: string[] = []
+          while (queue.length > 0) {
+            const next = queue.shift()!
+            visited.push(next)
+            for (const dependent of dependents.get(next) ?? []) {
+              const updated = (indegree.get(dependent) ?? 0) - 1
+              indegree.set(dependent, updated)
+              if (updated === 0) {
+                queue.push(dependent)
+              }
+            }
+          }
+
+          if (visited.length !== definition.stages.length) {
+            throw new Error('Pipeline definition contains a cycle; DAG execution requires an acyclic graph')
+          }
+
+          const entryStages = definition.stages
+            .map(stage => stage.name)
+            .filter(name => (dependencies.get(name)?.size ?? 0) === 0)
+
+          if (entryStages.length === 0) {
+            throw new Error('Pipeline definition must include at least one entry stage')
+          }
+
+          return {
+            dependencies,
+            dependents,
+            entryStages
+          }
+        }
+
+        private resolveStageDependencies(
+          stage: StageDefinition,
+          index: number,
+          definition: PipelineDefinition
+        ): string[] {
+          if (stage.dependsOn) {
+            return Array.isArray(stage.dependsOn) ? stage.dependsOn : [stage.dependsOn]
+          }
+
+          if (stage.mode === 'gather' && stage.gather?.stage) {
+            const gatherStages = stage.gather.stage
+            return Array.isArray(gatherStages) ? gatherStages : [gatherStages]
+          }
+
+          if (index === 0) {
+            return []
+          }
+
+          const previous = definition.stages[index - 1]
+          return previous ? [previous.name] : []
+        }
+  
   private async abortIfCancelled(pipelineId: string): Promise<boolean> {
     const cancelled = await this.stateStore.isPipelineCancelled(pipelineId)
     if (!cancelled) {
@@ -988,7 +1146,8 @@ export class PipelineOrchestrator {
 
     await this.stateStore.setPipelineStatus(pipelineId, 'failed', {
       currentStage: undefined,
-      resumeCursor: undefined
+      resumeCursor: undefined,
+      activeStages: []
     })
 
     try {
@@ -1019,7 +1178,8 @@ export class PipelineOrchestrator {
 
     await this.stateStore.setPipelineStatus(pipelineId, 'failed', {
       currentStage: undefined,
-      resumeCursor: undefined
+      resumeCursor: undefined,
+      activeStages: []
     })
     
     this.pipelines.delete(pipelineId)
@@ -1211,11 +1371,19 @@ interface PipelineExecutionState {
   pipelineId: string
   definition: PipelineDefinition
   context: PipelineContextState
-  currentStageIndex: number
   stageStates: Map<string, StageState>
+  stageMap: Map<string, StageDefinition>
+  stageGraph: StageGraphMetadata
+  activeStages: Set<string>
 }
 
 interface TaskLeaseContext {
   leaseId: string
   ttlMs: number
+}
+
+interface StageGraphMetadata {
+  dependencies: Map<string, Set<string>>
+  dependents: Map<string, Set<string>>
+  entryStages: string[]
 }

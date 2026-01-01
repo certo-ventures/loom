@@ -9,6 +9,15 @@ export type JournalEntry =
   | { type: 'child_spawned'; childId: string; actorType: string; input: unknown }
   | { type: 'event_received'; eventType: string; data: unknown }
   | { type: 'suspended'; reason: string }
+  | InvocationJournalEntry
+
+export interface InvocationJournalEntry {
+  type: 'invocation'
+  messageId: string
+  timestamp: string
+  payload: unknown
+  metadata?: Record<string, unknown>
+}
 
 /**
  * Journal tracks all actor actions for replay

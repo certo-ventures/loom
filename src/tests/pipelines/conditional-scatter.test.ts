@@ -3,40 +3,42 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { Redis } from 'ioredis'
 import { BullMQMessageQueue } from '../../storage/bullmq-message-queue'
 import { InMemoryActorRegistry } from '../../discovery'
 import { PipelineOrchestrator } from '../../pipelines/pipeline-orchestrator'
 import { PipelineActorWorker } from '../../pipelines/pipeline-actor-worker'
 import type { PipelineDefinition } from '../../pipelines/pipeline-dsl'
+import { RedisPipelineStateStore } from '../../pipelines/pipeline-state-store'
+import { createIsolatedRedis, type RedisTestContext } from '../utils/redis-test-utils'
 
 describe('Conditional Scatter', () => {
-  let redis: Redis
+  let redisContext: RedisTestContext
   let messageQueue: BullMQMessageQueue
   let orchestrator: PipelineOrchestrator
   let worker: PipelineActorWorker
+  let stateStore: RedisPipelineStateStore
 
   beforeEach(async () => {
-    redis = new Redis('redis://localhost:6379', {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false
+    redisContext = await createIsolatedRedis()
+
+    messageQueue = new BullMQMessageQueue(redisContext.queueRedis, {
+      prefix: redisContext.queuePrefix
     })
-    
-    // Clean up
-    const keys = await redis.keys('pipeline:*')
-    if (keys.length > 0) await redis.del(...keys)
-    const bullKeys = await redis.keys('bull:*')
-    if (bullKeys.length > 0) await redis.del(...bullKeys)
-    
-    messageQueue = new BullMQMessageQueue(redis)
-    orchestrator = new PipelineOrchestrator(messageQueue, new InMemoryActorRegistry(), redis)
-    worker = new PipelineActorWorker(messageQueue)
+    stateStore = new RedisPipelineStateStore(redisContext.stateRedis)
+    orchestrator = new PipelineOrchestrator(
+      messageQueue,
+      new InMemoryActorRegistry(),
+      redisContext.stateRedis,
+      stateStore
+    )
+    worker = new PipelineActorWorker(messageQueue, stateStore)
   })
 
   afterEach(async () => {
     await worker.close()
     await messageQueue.close()
-    await redis.quit()
+    await redisContext.queueRedis.quit()
+    await redisContext.stateRedis.quit()
   })
 
   it('should filter items based on condition', async () => {

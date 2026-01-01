@@ -2,6 +2,8 @@ import { Queue, Worker, Job, JobsOptions } from 'bullmq'
 import type { Redis } from 'ioredis'
 import type { Message } from '../types'
 import type { MessageQueue } from './message-queue'
+import { QueueMetadataStore, type JobMetadata } from './queue-metadata-store'
+import type { MetricsCollector } from '../observability/types'
 
 /**
  * BullMQ Job Options for retry, idempotency, etc.
@@ -25,13 +27,24 @@ export interface BullMQJobOptions {
  * 
  * NOTE: Interface compatibility issue with MessageQueue - needs refactoring
  */
+export interface BullMQMessageQueueOptions {
+  prefix?: string
+  metricsCollector?: MetricsCollector
+}
+
 export class BullMQMessageQueue implements MessageQueue {
   private queues = new Map<string, Queue>()
   private workers = new Map<string, Worker>()
   private connection: Redis
+  private queuePrefix?: string
+  private metadataStore: QueueMetadataStore
+  private metricsCollector?: MetricsCollector
 
-  constructor(connection: Redis) {
+  constructor(connection: Redis, options?: BullMQMessageQueueOptions) {
     this.connection = connection
+    this.queuePrefix = options?.prefix
+    this.metadataStore = new QueueMetadataStore(connection)
+    this.metricsCollector = options?.metricsCollector
   }
 
   // @ts-ignore - Interface mismatch with MessageQueue, needs refactor
@@ -58,7 +71,39 @@ export class BullMQMessageQueue implements MessageQueue {
       removeOnFail: options?.removeOnFail ?? false,
     }
     
-    await queue.add('message', message, jobOptions)
+    try {
+      await queue.add('message', message, jobOptions)
+      
+      // Record job metadata for durability
+      const metadata: JobMetadata = {
+        jobId,
+        queueName,
+        data: message,
+        options: {
+          priority: jobOptions.priority,
+          delay: jobOptions.delay,
+          attempts: jobOptions.attempts,
+          backoff: jobOptions.backoff,
+          removeOnComplete: jobOptions.removeOnComplete,
+          removeOnFail: jobOptions.removeOnFail
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: jobOptions.delay ? 'delayed' : 'queued',
+        attempts: 0,
+        maxAttempts: jobOptions.attempts || 3
+      }
+      await this.metadataStore.recordJob(metadata)
+      
+      // Record metrics
+      this.metricsCollector?.recordMessageEvent?.('enqueued')
+    } catch (error) {
+      this.metricsCollector?.recordMessageEvent?.('enqueue_failed')
+      if (error instanceof Error && error.message.includes('already exists')) {
+        return
+      }
+      throw error
+    }
   }
 
   async dequeue(queueName: string, timeoutMs: number): Promise<Message | null> {
@@ -98,12 +143,54 @@ export class BullMQMessageQueue implements MessageQueue {
     const worker = new Worker(
       queueName,
       async (job: Job) => {
+        const startTime = Date.now()
         const message = job.data as T
-        await processor(message)
+        
+        // Record attempt start
+        await this.metadataStore.recordAttempt(job.id!, {
+          attemptNumber: job.attemptsMade + 1,
+          timestamp: new Date().toISOString(),
+          status: 'started',
+          workerId: worker.id
+        })
+        this.metricsCollector?.recordMessageEvent?.('processing_started')
+        
+        try {
+          await processor(message)
+          
+          // Record attempt completion
+          const duration = Date.now() - startTime
+          await this.metadataStore.recordAttempt(job.id!, {
+            attemptNumber: job.attemptsMade + 1,
+            timestamp: new Date().toISOString(),
+            status: 'completed',
+            duration,
+            workerId: worker.id
+          })
+          this.metricsCollector?.recordMessageEvent?.('completed', duration)
+        } catch (error) {
+          // Record attempt failure
+          const duration = Date.now() - startTime
+          await this.metadataStore.recordAttempt(job.id!, {
+            attemptNumber: job.attemptsMade + 1,
+            timestamp: new Date().toISOString(),
+            status: 'failed',
+            duration,
+            error: {
+              message: (error as Error).message,
+              stack: (error as Error).stack,
+              type: (error as Error).constructor.name
+            },
+            workerId: worker.id
+          })
+          this.metricsCollector?.recordMessageEvent?.('failed')
+          throw error
+        }
       },
       {
         connection: this.connection,
         concurrency,
+        prefix: this.queuePrefix
       }
     )
 
@@ -152,10 +239,38 @@ export class BullMQMessageQueue implements MessageQueue {
   }
 
   /**
-   * Get a queue instance (for advanced operations)
+   * Get queue instance (for advanced operations)
    */
   getQueue(queueName: string): Queue | undefined {
     return this.queues.get(queueName)
+  }
+
+  /**
+   * Get job metadata (for observability/debugging)
+   */
+  async getJobMetadata(jobId: string) {
+    return this.metadataStore.getJobMetadata(jobId)
+  }
+
+  /**
+   * Get job attempt history (for retry debugging)
+   */
+  async getJobAttempts(jobId: string) {
+    return this.metadataStore.getJobAttempts(jobId)
+  }
+
+  /**
+   * Get queue statistics
+   */
+  async getQueueStats(queueName: string) {
+    return this.metadataStore.getQueueStats(queueName)
+  }
+
+  /**
+   * List all queues
+   */
+  async listQueues() {
+    return this.metadataStore.listQueues()
   }
 
   /**
@@ -174,7 +289,10 @@ export class BullMQMessageQueue implements MessageQueue {
     let queue = this.queues.get(queueName)
     
     if (!queue) {
-      queue = new Queue(queueName, { connection: this.connection })
+      queue = new Queue(queueName, {
+        connection: this.connection,
+        prefix: this.queuePrefix
+      })
       this.queues.set(queueName, queue)
     }
 

@@ -29,7 +29,7 @@ class CriticalActor extends Actor {
   }
 
   async execute(input: unknown) {
-    this.simpleState.set('processed', true)
+    await this.simpleState.set('processed', true)
   }
 }
 
@@ -50,7 +50,7 @@ class FastActor extends Actor {
   }
 
   async execute(input: unknown) {
-    this.simpleState.set('processed', true)
+    await this.simpleState.set('processed', true)
   }
 }
 
@@ -72,7 +72,7 @@ class NotificationActor extends Actor {
   }
 
   async execute(input: unknown) {
-    this.simpleState.set('sent', true)
+    await this.simpleState.set('sent', true)
   }
 }
 
@@ -83,7 +83,7 @@ class DefaultActor extends Actor {
   // No config - uses defaults
   
   async execute(input: unknown) {
-    this.simpleState.set('processed', true)
+    await this.simpleState.set('processed', true)
   }
 }
 

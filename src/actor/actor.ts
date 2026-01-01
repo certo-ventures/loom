@@ -1,4 +1,4 @@
-import type { Journal, JournalEntry, ActorContext } from './journal'
+import type { Journal, JournalEntry, ActorContext, InvocationJournalEntry } from './journal'
 import type { StreamChunk } from '../streaming/types'
 import { SimpleStateImpl, type SimpleState } from '../state'
 import type { ActorInfrastructureConfig } from './actor-config'
@@ -9,6 +9,10 @@ import type { IdempotencyStore, IdempotencyRecord } from '../storage/idempotency
 import type { JournalStore } from '../storage/journal-store'
 import { createMemoryHelpers, type MemoryHelpers, type MemoryContext } from './memory-helpers'
 import type { MemoryAdapter } from '../memory'
+import { LamportClock } from '../timing/lamport-clock'
+import type { ActorMemory } from '../memory/graph/actor-memory'
+import type { GraphStorage } from '../memory/graph/types'
+import type { Message } from '../types'
 
 /**
  * Base Actor class - all actors extend this
@@ -61,12 +65,23 @@ export abstract class Actor {
    */
   protected readonly memory: MemoryHelpers
   
+  /**
+   * Lamport clock for distributed logical time (shared across actor and memory)
+   */
+  protected readonly lamportClock: LamportClock
+  
+  /**
+   * Optional graph memory (opt-in, provides structured memory with temporal reasoning)
+   */
+  protected graphMemory?: ActorMemory
+  
   private journal: Journal
   private isReplaying: boolean = false
   private activityCounter: number = 0
   private isCompacting: boolean = false
   private lastCompactionTime: number = 0
   private cachedCompactionThreshold: number | undefined
+  private lastInvocation?: InvocationJournalEntry
 
   constructor(
     context: ActorContext, 
@@ -74,7 +89,9 @@ export abstract class Actor {
     observabilityTracer?: TraceWriter,
     idempotencyStore?: IdempotencyStore,
     memoryAdapter?: MemoryAdapter,
-    journalStore?: JournalStore
+    journalStore?: JournalStore,
+    lamportClock?: LamportClock,
+    graphMemory?: ActorMemory
   ) {
     this.context = context
     this.state = initialState ?? this.getDefaultState()
@@ -83,6 +100,8 @@ export abstract class Actor {
     this.idempotencyStore = idempotencyStore
     this.memoryAdapter = memoryAdapter
     this.journalStore = journalStore
+    this.lamportClock = lamportClock ?? new LamportClock()
+    this.graphMemory = graphMemory
     
     // Initialize memory helpers (no-op if adapter not provided)
     const memoryContext: MemoryContext = {
@@ -139,6 +158,29 @@ export abstract class Actor {
    */
   protected getDefaultState(): Record<string, unknown> {
     return {}
+  }
+  
+  /**
+   * Get current Lamport timestamp (read-only, no side effects)
+   * Use this when you need to read the clock value without incrementing it.
+   * 
+   * @returns Current logical timestamp
+   */
+  protected getCurrentLogicalTime(): number {
+    return this.lamportClock.get()
+  }
+  
+  /**
+   * Tick the Lamport clock for a local event or sync with received time
+   * Call this when:
+   * - Processing a local event (no parameter)
+   * - Receiving a message with a timestamp (pass receivedTime)
+   * 
+   * @param receivedTime - Optional timestamp from received message
+   * @returns New logical timestamp after ticking
+   */
+  protected tickLogicalTime(receivedTime?: number): number {
+    return this.lamportClock.tick(receivedTime)
   }
   
   /**
@@ -276,6 +318,11 @@ export abstract class Actor {
           this.journal.cursor++
           continue
         }
+        // Skip invocation records
+        if (entry.type === 'invocation') {
+          this.journal.cursor++
+          continue
+        }
         
         // Skip the activity_scheduled entry
         if (entry.type === 'activity_scheduled') {
@@ -383,6 +430,11 @@ export abstract class Actor {
         
         // Skip state updates
         if (entry.type === 'state_updated') {
+          this.journal.cursor++
+          continue
+        }
+        // Skip invocation records
+        if (entry.type === 'invocation') {
           this.journal.cursor++
           continue
         }
@@ -529,6 +581,52 @@ export abstract class Actor {
    */
   loadJournal(journal: Journal): void {
     this.journal = journal
+    this.updateLastInvocationFromJournal()
+  }
+
+  /**
+   * Record the inbound invocation payload for deterministic replay
+   */
+  recordInvocation(message: Message): void {
+    if (this.isReplaying) {
+      return
+    }
+
+    let payloadCopy: unknown
+    try {
+      payloadCopy = JSON.parse(JSON.stringify(message.payload))
+    } catch (error) {
+      console.warn('Failed to deep copy invocation payload, storing original reference:', error)
+      payloadCopy = message.payload
+    }
+
+    let metadataCopy: Record<string, unknown> | undefined
+    try {
+      metadataCopy = JSON.parse(JSON.stringify(message.metadata))
+    } catch (error) {
+      console.warn('Failed to deep copy invocation metadata, storing original reference:', error)
+      metadataCopy = { ...message.metadata }
+    }
+
+    const entry: InvocationJournalEntry = {
+      type: 'invocation',
+      messageId: message.messageId,
+      timestamp: new Date().toISOString(),
+      payload: payloadCopy,
+      metadata: {
+        ...metadataCopy,
+        messageType: message.messageType,
+        correlationId: message.correlationId,
+      },
+    }
+
+    this.journal.entries.push(entry)
+    this.lastInvocation = entry
+    this.persistJournalEntry(entry).catch(() => {})
+  }
+
+  getLastInvocation(): InvocationJournalEntry | undefined {
+    return this.lastInvocation
   }
 
   /**
@@ -736,6 +834,124 @@ export abstract class Actor {
         })
       }
     }
+  }
+
+  private updateLastInvocationFromJournal(): void {
+    for (let i = this.journal.entries.length - 1; i >= 0; i--) {
+      const entry = this.journal.entries[i]
+      if (entry.type === 'invocation') {
+        this.lastInvocation = entry
+        return
+      }
+    }
+    this.lastInvocation = undefined
+  }
+  
+  /**
+   * Graph Memory Helper Methods
+   * These are convenience methods for working with ActorMemory (graph-based memory)
+   * Only available if graphMemory is configured during actor construction
+   */
+  
+  /**
+   * Remember a fact in the graph memory
+   * @param sourceEntityId - The entity that is the subject of the fact
+   * @param relation - The relationship (e.g., "likes", "lives_in", "ordered")
+   * @param targetEntityId - The entity that is the object of the fact
+   * @param text - Human-readable description of the fact
+   * @param options - Additional options (confidence, validity period, etc.)
+   */
+  protected async rememberFact(
+    sourceEntityId: string,
+    relation: string,
+    targetEntityId: string,
+    text: string,
+    options?: {
+      episodeIds?: string[];
+      source?: 'user_input' | 'auto_extracted' | 'imported';
+      confidence?: number;
+      validFrom?: Date;
+      lamport_ts?: number;
+    }
+  ): Promise<string | undefined> {
+    if (!this.graphMemory) {
+      console.warn('rememberFact called but graphMemory not configured');
+      return undefined;
+    }
+    return this.graphMemory.addFact(sourceEntityId, relation, targetEntityId, text, options);
+  }
+  
+  /**
+   * Remember an episode (conversation turn, event) in memory
+   * If auto-extraction is enabled, will automatically extract entities and facts
+   * @param content - The content to remember (string or JSON)
+   * @param source - The source type ('message', 'json', or 'text')
+   */
+  protected async rememberEpisode(
+    content: string,
+    source: 'message' | 'json' | 'text' = 'message'
+  ): Promise<string | undefined> {
+    if (!this.graphMemory) {
+      console.warn('rememberEpisode called but graphMemory not configured');
+      return undefined;
+    }
+    return this.graphMemory.addEpisode(content, source);
+  }
+  
+  /**
+   * Recall facts from memory
+   * @param query - Search query (text, entity IDs, temporal constraints)
+   */
+  protected async recallFacts(query: {
+    text?: string;
+    source_entity_ids?: string[];
+    target_entity_ids?: string[];
+    relations?: string[];
+    asOf?: Date;
+    limit?: number;
+  }) {
+    if (!this.graphMemory) {
+      console.warn('recallFacts called but graphMemory not configured');
+      return [];
+    }
+    return this.graphMemory.searchByQuery(query);
+  }
+  
+  /**
+   * Recall recent episodes
+   * @param limit - Maximum number of episodes to return
+   */
+  protected async recallEpisodes(limit: number = 10) {
+    if (!this.graphMemory) {
+      console.warn('recallEpisodes called but graphMemory not configured');
+      return [];
+    }
+    return this.graphMemory.getRecentEpisodes(limit);
+  }
+  
+  /**
+   * Add or get an entity in the graph
+   * @param name - Entity name (e.g., user ID, product name)
+   * @param type - Entity type (e.g., 'user', 'product', 'order')
+   * @param summary - Optional summary description
+   */
+  protected async rememberEntity(name: string, type: string, summary?: string): Promise<string | undefined> {
+    if (!this.graphMemory) {
+      console.warn('rememberEntity called but graphMemory not configured');
+      return undefined;
+    }
+    return this.graphMemory.addEntity(name, type, summary);
+  }
+  
+  /**
+   * Get all entities from memory
+   */
+  protected async getEntities() {
+    if (!this.graphMemory) {
+      console.warn('getEntities called but graphMemory not configured');
+      return [];
+    }
+    return this.graphMemory.getEntities();
   }
 }
 

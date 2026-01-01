@@ -290,6 +290,35 @@ export class InMemoryMetricsCollector implements MetricsCollector {
   }
   
   /**
+   * Emit a custom metric
+   */
+  emit(name: string, value: number, labels?: Record<string, string>): void {
+    // Store custom metrics for later aggregation
+    const key = this.makeMetricKey(name, labels)
+    // For now, just track as counters - can be extended later
+  }
+  
+  /**
+   * Emit a timing metric
+   */
+  timing(name: string, durationMs: number, labels?: Record<string, string>): void {
+    const key = this.makeMetricKey(name, labels)
+    // Track timing metrics
+  }
+  
+  /**
+   * Create a unique key for a metric with labels
+   */
+  private makeMetricKey(name: string, labels?: Record<string, string>): string {
+    if (!labels) return name
+    const labelStr = Object.entries(labels)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}:${v}`)
+      .join(',')
+    return `${name}{${labelStr}}`
+  }
+  
+  /**
    * Reset all metrics (for testing)
    */
   reset(): void {

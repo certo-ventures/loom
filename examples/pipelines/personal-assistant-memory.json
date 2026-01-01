@@ -1,0 +1,63 @@
+{
+  "name": "personal-assistant-memory",
+  "version": "1.0.0",
+  "description": "Extract preferences and habits from user interactions with quality filtering",
+  
+  "stages": [
+    {
+      "name": "extract-preferences",
+      "actor": "EntityExtractor",
+      "mode": "single",
+      "input": {
+        "text": "$.userMessage",
+        "extractorConfig": {
+          "endpoint": "https://api.openai.com",
+          "model": "gpt-4",
+          "apiKey": "$.secrets.openai_api_key"
+        }
+      }
+    },
+    {
+      "name": "filter-preferences",
+      "actor": "ConfidenceFilter",
+      "mode": "single",
+      "input": {
+        "facts": "$.extract-preferences.facts",
+        "threshold": 0.9
+      },
+      "when": "$.config.enableFiltering == true"
+    },
+    {
+      "name": "transform-preferences",
+      "actor": "FactTransformer",
+      "mode": "single",
+      "input": {
+        "facts": "$.filter-preferences.filtered_facts",
+        "entities": "$.extract-preferences.entities",
+        "actorId": "$.userId",
+        "graphId": "personal-preferences",
+        "episodeId": "$.messageId"
+      }
+    },
+    {
+      "name": "store-preferences",
+      "actor": "MemoryStore",
+      "mode": "single",
+      "input": {
+        "facts": "$.transform-preferences.transformed_facts",
+        "storageConfig": {
+          "type": "memory-graph",
+          "persistence": true
+        }
+      }
+    }
+  ],
+  
+  "config": {
+    "timeout": 15000,
+    "retryPolicy": {
+      "maxRetries": 2,
+      "backoff": "linear"
+    }
+  }
+}

@@ -143,6 +143,10 @@ export class LongLivedActorRuntime {
 
     const actor = await this.getActor(message.actorId, actorType, context)
 
+    actor.recordInvocation(message)
+
+    await this.persistInvocationSnapshot(message, actorType, actor)
+
     await actor.execute(message.payload)
 
     // Persist state AND journal after execution
@@ -153,12 +157,13 @@ export class LongLivedActorRuntime {
         partitionKey: message.actorId,
         actorType,
         status: 'active',
-        state: (actor as any).state,
+        state: actor.getState(),
         correlationId: message.correlationId,
         createdAt: new Date().toISOString(),
         lastActivatedAt: new Date().toISOString(),
         metadata: {
           journal, // Save journal for deterministic replay
+          lastInvocation: actor.getLastInvocation(),
         },
       })
       console.log(
@@ -263,21 +268,49 @@ export class LongLivedActorRuntime {
     if (!actor) return
 
     const context = (actor as any).context
-    
+
     await this.stateStore.save(actorId, {
       id: actorId,
       partitionKey: actorId,
       actorType: context?.actorType || 'unknown',
       status: 'suspended',
-      state: (actor as any).state,
+      state: actor.getState(),
       correlationId: context?.correlationId || actorId,
       createdAt: new Date().toISOString(),
       lastActivatedAt: new Date().toISOString(),
       metadata: {
         journal: actor.getJournal(), // Persist journal for durable execution
         parentActorId: context?.parentActorId,
+        lastInvocation: actor.getLastInvocation(),
       },
     })
+  }
+
+  private async persistInvocationSnapshot(message: Message, actorType: string, actor: Actor): Promise<void> {
+    if (!this.stateStore) {
+      return
+    }
+
+    const journal = actor.getJournal()
+
+    try {
+      await this.stateStore.save(message.actorId, {
+        id: message.actorId,
+        partitionKey: message.actorId,
+        actorType,
+        status: 'executing',
+        state: actor.getState(),
+        correlationId: message.correlationId,
+        createdAt: new Date().toISOString(),
+        lastActivatedAt: new Date().toISOString(),
+        metadata: {
+          journal,
+          pendingInvocation: actor.getLastInvocation(),
+        },
+      })
+    } catch (error) {
+      console.error(`[ActorRuntime] Failed to persist invocation snapshot for ${message.actorId}:`, error)
+    }
   }
 
   /**

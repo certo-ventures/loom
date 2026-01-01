@@ -5,7 +5,14 @@
  */
 
 import { BullMQMessageQueue } from '../storage/bullmq-message-queue'
+import type { MetricsCollector } from '../observability/types'
 import type { PipelineMessage } from './stage-executor'
+import type {
+  PipelineStateStore,
+  TaskStatus,
+  TaskAttemptRecord
+} from './pipeline-state-store'
+import { DEFAULT_TASK_LEASE_TTL_MS } from './pipeline-state-store'
 
 export interface ActorImplementation {
   execute(input: any): Promise<any>
@@ -17,9 +24,17 @@ export interface ActorImplementation {
 export class PipelineActorWorker {
   private messageQueue: BullMQMessageQueue
   private actors = new Map<string, ActorImplementation | (new () => ActorImplementation)>()
+  private stateStore?: PipelineStateStore
+  private readonly metricsCollector?: MetricsCollector
 
-  constructor(messageQueue: BullMQMessageQueue) {
+  constructor(
+    messageQueue: BullMQMessageQueue,
+    stateStore?: PipelineStateStore,
+    options?: { metricsCollector?: MetricsCollector }
+  ) {
     this.messageQueue = messageQueue
+    this.stateStore = stateStore
+    this.metricsCollector = options?.metricsCollector
   }
 
   /**
@@ -41,13 +56,20 @@ export class PipelineActorWorker {
 
     console.log(`🤖 Starting worker for: ${actorType} (concurrency: ${concurrency})`)
 
+    const workerId = `${actorType}-worker-${process.pid}`
+
     this.messageQueue.registerWorker<PipelineMessage>(
       `actor-${actorType}`,
       async (message: PipelineMessage) => {
-        await this.handleMessage(actorType, message)
+        await this.handleMessage(actorType, message, workerId)
       },
       concurrency
     )
+
+    for (let i = 0; i < concurrency; i++) {
+      this.metricsCollector?.recordActorEvent('created')
+      this.metricsCollector?.recordActorEvent('idle')
+    }
 
     console.log(`   ✅ Worker listening on queue: actor-${actorType}`)
   }
@@ -55,12 +77,53 @@ export class PipelineActorWorker {
   /**
    * Handle a message
    */
-  private async handleMessage(actorType: string, message: PipelineMessage): Promise<void> {
-    const { pipelineId, stageName, taskIndex, input } = message.payload
+  private async handleMessage(actorType: string, message: PipelineMessage, workerId: string): Promise<void> {
+    const { pipelineId, stageName, taskIndex, input, metadata } = message.payload
+    const attempt = message.payload.attempt ?? 1
+    const retryAttempt = message.payload.retryAttempt ?? 1
+    const retryPolicy = message.payload.retryPolicy
+    const queueName = `actor-${actorType}`
+    const leaseId: string | undefined = message.payload.leaseId
+    const leaseTtlMs = typeof message.payload.leaseTtlMs === 'number'
+      ? message.payload.leaseTtlMs
+      : DEFAULT_TASK_LEASE_TTL_MS
 
     console.log(`\n   🎬 Processing: ${actorType} [task ${taskIndex}]`)
     console.log(`      Pipeline: ${pipelineId}`)
     console.log(`      Stage: ${stageName}`)
+
+    this.metricsCollector?.recordMessageEvent('received')
+
+    if (leaseId && this.stateStore) {
+      const lease = await this.stateStore.acquireTaskLease({
+        pipelineId,
+        stageName,
+        taskIndex,
+        leaseId,
+        ttlMs: leaseTtlMs,
+        owner: workerId
+      })
+      if (!lease) {
+        console.warn(`      ⚠️ Unable to acquire lease ${leaseId} for task ${taskIndex}; skipping.`)
+        return
+      }
+    }
+
+    if (this.stateStore && (await this.stateStore.isPipelineCancelled(pipelineId))) {
+      throw new Error(`Pipeline ${pipelineId} cancelled`)
+    }
+
+    await this.recordTaskState(pipelineId, stageName, taskIndex, attempt, 'running', {
+      workerId,
+      queueName,
+      actorType,
+      startedAt: Date.now(),
+      messageId: message.messageId,
+      leaseId,
+      leaseOwner: workerId
+    })
+
+    let recordedActivation = false
 
     try {
       const actorClassOrInstance = this.actors.get(actorType)!
@@ -70,11 +133,15 @@ export class PipelineActorWorker {
         ? new (actorClassOrInstance as new () => ActorImplementation)()
         : actorClassOrInstance
 
+      this.metricsCollector?.recordActorEvent('activated')
+      recordedActivation = true
+
       const startTime = Date.now()
       const output = await actor.execute(input)
       const duration = Date.now() - startTime
 
       console.log(`      ✅ Completed in ${duration}ms`)
+      this.metricsCollector?.recordMessageEvent('completed', duration)
 
       // Send result back via message queue
       const resultMessage: PipelineMessage = {
@@ -86,7 +153,13 @@ export class PipelineActorWorker {
           pipelineId,
           stageName,
           taskIndex,
-          output
+          output,
+          workerId,
+          attempt,
+          durationMs: duration,
+          retryAttempt,
+          retryPolicy,
+          leaseId
         },
         timestamp: new Date().toISOString()
       }
@@ -94,9 +167,77 @@ export class PipelineActorWorker {
       await this.messageQueue.enqueue('pipeline-stage-results', resultMessage)
       console.log(`      📨 Result sent to: pipeline-stage-results`)
     } catch (error) {
+      this.metricsCollector?.recordMessageEvent('failed')
+      await this.recordTaskState(pipelineId, stageName, taskIndex, attempt, 'failed', {
+        workerId,
+        queueName,
+        actorType,
+        retryAttempt,
+        error: {
+          message: (error as Error).message,
+          occurredAt: Date.now()
+        },
+        leaseId,
+        leaseOwner: workerId
+      })
       console.error(`      ❌ Actor failed:`, error)
+
+      const failureMessage: PipelineMessage = {
+        messageId: message.messageId + '-failure',
+        from: actorType,
+        to: pipelineId,
+        type: 'failure',
+        payload: {
+          pipelineId,
+          stageName,
+          taskIndex,
+          actorType,
+          input,
+          metadata,
+          attempt,
+          retryAttempt,
+          retryPolicy,
+          workerId,
+          leaseId,
+          error: {
+            message: (error as Error).message,
+            stack: (error as Error).stack
+          }
+        },
+        timestamp: new Date().toISOString()
+      }
+
+      await this.messageQueue.enqueue('pipeline-stage-results', failureMessage)
+      console.log(`      📨 Failure sent to: pipeline-stage-results`)
+
       throw error
+    } finally {
+      if (recordedActivation) {
+        this.metricsCollector?.recordActorEvent('idle')
+      }
     }
+  }
+
+  private async recordTaskState(
+    pipelineId: string,
+    stageName: string,
+    taskIndex: number,
+    attempt: number,
+    status: TaskStatus,
+    patch: Partial<TaskAttemptRecord>
+  ): Promise<void> {
+    if (!this.stateStore) {
+      return
+    }
+
+    await this.stateStore.recordTaskAttempt({
+      pipelineId,
+      stageName,
+      taskIndex,
+      attempt,
+      status,
+      ...patch
+    })
   }
 
   /**

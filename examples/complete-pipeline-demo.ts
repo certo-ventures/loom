@@ -16,6 +16,7 @@ import { InMemoryActorRegistry } from '../src/discovery'
 import { PipelineOrchestrator } from '../src/pipelines/pipeline-orchestrator'
 import { PipelineActorWorker } from '../src/pipelines/pipeline-actor-worker'
 import { PipelineDefinition } from '../src/pipelines/pipeline-dsl'
+import { RedisPipelineStateStore } from '../src/pipelines/pipeline-state-store'
 
 // ============================================================================
 // Simple Actor Implementations
@@ -116,22 +117,28 @@ async function main() {
   console.log('='.repeat(80))
 
   // Setup
-  const redis = new Redis('redis://localhost:6379', {
+  const stateRedis = new Redis('redis://localhost:6379', {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false
+  })
+  const queueRedis = new Redis('redis://localhost:6379', {
     maxRetriesPerRequest: null,
     enableReadyCheck: false
   })
 
   // Clean up
-  const keys = await redis.keys('pipeline:*')
-  if (keys.length > 0) await redis.del(...keys)
+  const keys = await stateRedis.keys('pipeline:*')
+  if (keys.length > 0) await stateRedis.del(...keys)
 
-  const messageQueue = new BullMQMessageQueue(redis)
+  const messageQueue = new BullMQMessageQueue(queueRedis)
+  const stateStore = new RedisPipelineStateStore(stateRedis)
   const orchestrator = new PipelineOrchestrator(
     messageQueue,
     new InMemoryActorRegistry(),
-    redis
+    stateRedis,
+    stateStore
   )
-  const worker = new PipelineActorWorker(messageQueue)
+  const worker = new PipelineActorWorker(messageQueue, stateStore)
 
   // Register actors
   console.log('\n📦 Registering Actors:')
@@ -179,7 +186,7 @@ async function main() {
   console.log('📊 RESULTS')
   console.log('='.repeat(80))
 
-  const state = await redis.get(`pipeline:${pipelineId}:state`)
+  const state = await stateRedis.get(`pipeline:${pipelineId}:state`)
   if (state) {
     const data = JSON.parse(state)
     console.log('\n✅ Pipeline Definition:')
@@ -192,8 +199,8 @@ async function main() {
 
   // Check Redis
   console.log('\n✅ Redis Keys Created:')
-  const pipelineKeys = await redis.keys('pipeline:*')
-  const bullKeys = await redis.keys('bull:actor-*')
+  const pipelineKeys = await stateRedis.keys('pipeline:*')
+  const bullKeys = await queueRedis.keys('bull:actor-*')
   console.log(`   Pipeline keys: ${pipelineKeys.length}`)
   console.log(`   BullMQ keys: ${bullKeys.length}`)
 
@@ -201,7 +208,8 @@ async function main() {
   console.log('\n🧹 Cleaning up...')
   await worker.close()
   await orchestrator.close()
-  await redis.quit()
+  await queueRedis.quit()
+  await stateRedis.quit()
 
   console.log('\n✅ DEMO COMPLETE!\n')
   console.log('What you saw:')

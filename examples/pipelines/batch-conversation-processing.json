@@ -1,0 +1,88 @@
+{
+  "name": "batch-conversation-processing",
+  "version": "1.0.0",
+  "description": "Process multiple conversations in parallel, extract facts, and consolidate into memory",
+  
+  "stages": [
+    {
+      "name": "extract-parallel",
+      "actor": "EntityExtractor",
+      "mode": "scatter",
+      "scatter": {
+        "input": "$.conversations",
+        "as": "conversation",
+        "condition": "$.conversation.processed != true"
+      },
+      "input": {
+        "text": "$.item.text",
+        "extractorConfig": "$.config.extractor"
+      },
+      "output": {
+        "entities": "$.entities",
+        "facts": "$.facts"
+      },
+      "config": {
+        "concurrency": 10
+      }
+    },
+    {
+      "name": "gather-extractions",
+      "actor": "PassThrough",
+      "mode": "gather",
+      "gather": {
+        "stage": "extract-parallel",
+        "condition": "all"
+      },
+      "input": {
+        "results": "$.gathered"
+      }
+    },
+    {
+      "name": "filter-all-facts",
+      "actor": "ConfidenceFilter",
+      "mode": "single",
+      "input": {
+        "facts": "$.gather-extractions.results[*].facts",
+        "threshold": 0.85
+      }
+    },
+    {
+      "name": "transform-batch",
+      "actor": "FactTransformer",
+      "mode": "single",
+      "input": {
+        "facts": "$.filter-all-facts.filtered_facts",
+        "entities": "$.gather-extractions.results[*].entities",
+        "actorId": "$.userId",
+        "graphId": "$.config.graphId"
+      }
+    },
+    {
+      "name": "enrich-embeddings",
+      "actor": "EmbeddingEnricher",
+      "mode": "single",
+      "input": {
+        "facts": "$.transform-batch.transformed_facts",
+        "embedderConfig": "$.config.embedder"
+      }
+    },
+    {
+      "name": "store-consolidated",
+      "actor": "MemoryStore",
+      "mode": "single",
+      "input": {
+        "facts": "$.enrich-embeddings.enriched_facts",
+        "storageConfig": "$.config.storage"
+      }
+    }
+  ],
+  
+  "config": {
+    "maxConcurrency": 20,
+    "timeout": 60000,
+    "retryPolicy": {
+      "maxRetries": 3,
+      "backoff": "exponential"
+    }
+  }
+}

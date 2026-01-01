@@ -8,7 +8,8 @@
 import jp from 'jsonpath'
 import { v4 as uuidv4 } from 'uuid'
 import { BullMQMessageQueue } from '../storage/bullmq-message-queue'
-import { StageDefinition, ActorStrategy } from './pipeline-dsl'
+import { StageDefinition, ActorStrategy, StageRetryPolicy } from './pipeline-dsl'
+import { PipelineStateStore, DEFAULT_TASK_LEASE_TTL_MS } from './pipeline-state-store'
 import { ExpressionEvaluator } from './expression-evaluator'
 
 /**
@@ -18,7 +19,7 @@ export interface PipelineMessage {
   messageId: string
   from: string  // sender pipeline or actor
   to: string  // target actor type
-  type: 'execute' | 'result'
+  type: 'execute' | 'result' | 'failure' | 'dead-letter'
   payload: any
   timestamp: string
 }
@@ -32,6 +33,19 @@ export interface ExecutionContext {
   pipelineContext: any  // Full pipeline context with previous stage outputs
   messageQueue: BullMQMessageQueue
   redis: any  // Redis client for state
+  stateStore: PipelineStateStore
+  stageAttempt: number
+  scheduleTask?: (task: ScheduledTaskRequest) => Promise<void>
+}
+
+export interface ScheduledTaskRequest {
+  actorType: string
+  taskIndex: number
+  input: any
+  metadata?: Record<string, any>
+  retryPolicy?: StageRetryPolicy
+  retryAttempt?: number
+  delayMs?: number
 }
 
 /**
@@ -180,5 +194,116 @@ export abstract class BaseStageExecutor implements StageExecutor {
     const result = this.evaluateCondition(condition.trim(), context)
     
     return result ? trueValue : falseValue
+  }
+
+  protected async enqueueActorTask(
+    context: ExecutionContext,
+    actorType: string,
+    taskIndex: number,
+    input: any,
+    metadata?: Record<string, any>
+  ): Promise<void> {
+    const { stage } = context
+    const retryPolicy = this.resolveRetryPolicy(stage)
+    const taskRequest: ScheduledTaskRequest = {
+      actorType,
+      taskIndex,
+      input,
+      metadata,
+      retryPolicy,
+      retryAttempt: 1
+    }
+
+    if (context.scheduleTask) {
+      await context.scheduleTask(taskRequest)
+      return
+    }
+
+    await this.dispatchTaskDirect(context, taskRequest)
+  }
+
+  protected buildJobId(
+    pipelineId: string,
+    stageName: string,
+    attempt: number,
+    taskIndex: number,
+    retryAttempt = 1
+  ): string {
+    const normalizedPipelineId = pipelineId.replace(/:/g, '_')
+    return `${normalizedPipelineId}-${stageName}-${attempt}-${taskIndex}-r${retryAttempt}`
+  }
+
+  protected resolveRetryPolicy(stage: StageDefinition): StageRetryPolicy | undefined {
+    if (stage.retry) {
+      return stage.retry
+    }
+    return stage.config?.retryPolicy
+  }
+
+  protected resolveTaskLeaseTtl(stage: StageDefinition): number {
+    return stage.config?.leaseTtlMs ?? DEFAULT_TASK_LEASE_TTL_MS
+  }
+
+  protected resolveInitialDelay(stage: StageDefinition): number {
+    return stage.config?.initialDelayMs ?? 0
+  }
+
+  private async dispatchTaskDirect(context: ExecutionContext, task: ScheduledTaskRequest): Promise<void> {
+    const { pipelineId, stage, messageQueue, stateStore, stageAttempt } = context
+    const queueName = `actor-${task.actorType}`
+    const retryAttempt = task.retryAttempt ?? 1
+    const payloadMetadata = task.metadata ? { ...task.metadata } : {}
+    const leaseTtlMs = this.resolveTaskLeaseTtl(stage)
+    const leaseId = uuidv4()
+    const delayMs = task.delayMs ?? this.resolveInitialDelay(stage)
+    const availableAt = delayMs && delayMs > 0 ? Date.now() + delayMs : undefined
+
+    await stateStore.ensureTaskLease({
+      pipelineId,
+      stageName: stage.name,
+      taskIndex: task.taskIndex,
+      leaseId,
+      ttlMs: leaseTtlMs
+    })
+
+    const message = this.createMessage(
+      pipelineId,
+      stage.name,
+      task.actorType,
+      task.taskIndex,
+      task.input,
+      {
+        ...payloadMetadata,
+        attempt: stageAttempt,
+        retryAttempt,
+        retryPolicy: task.retryPolicy,
+        leaseId,
+        leaseTtlMs
+      }
+    )
+
+    await messageQueue.enqueue(queueName, message, {
+      jobId: this.buildJobId(pipelineId, stage.name, stageAttempt, task.taskIndex, retryAttempt),
+      attempts: 1,
+      delay: delayMs
+    })
+
+    await stateStore.recordTaskAttempt({
+      pipelineId,
+      stageName: stage.name,
+      taskIndex: task.taskIndex,
+      attempt: stageAttempt,
+      retryAttempt,
+      status: 'queued',
+      queuedAt: Date.now(),
+      availableAt,
+      queueName,
+      actorType: task.actorType,
+      messageId: message.messageId,
+      message,
+      input: task.input,
+      metadata: task.metadata,
+      leaseId
+    })
   }
 }

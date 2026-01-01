@@ -384,6 +384,81 @@ async executeGatherStage(...) {
 }
 ```
 
+### Failure Message (Worker → Orchestrator)
+Every actor worker now emits a structured failure envelope before rethrowing so the orchestrator can decide whether to retry:
+
+```json
+{
+  "messageId": "3f8a9b2c-...-failure",
+  "from": "FileProcessor",
+  "to": "pipeline:542800df-...",
+  "type": "failure",
+  "payload": {
+    "pipelineId": "pipeline:542800df-...",
+    "stageName": "split-pages",
+    "taskIndex": 0,
+    "actorType": "FileProcessor",
+    "input": { "filepath": "/uploads/doc1.pdf" },
+    "metadata": { "shard": "A" },
+    "attempt": 1,
+    "retryAttempt": 1,
+    "retryPolicy": {
+      "maxAttempts": 5,
+      "backoff": "exponential",
+      "backoffDelay": 500,
+      "maxBackoffDelay": 10000
+    },
+    "error": {
+      "message": "transient failure",
+      "stack": "Error: transient failure\n    at ..."
+    }
+  },
+  "timestamp": "2025-12-20T10:30:45.223Z"
+}
+```
+
+The orchestrator listens to both `result` and `failure` messages on `pipeline-stage-results`. Failures decrement the stage's `activeTasks` counter, record audit metadata in the durable store, and optionally schedule a retry depending on the configured policy.
+
+---
+
+## Stage-Level Retry, Backoff, and Throttling
+
+Stages can now carry explicit retry policies plus concurrency limits, giving you fine-grained control over how much pressure each actor queue exerts on downstream systems.
+
+### Declaring a Retry Policy
+
+```ts
+const pipeline: PipelineDefinition = {
+  name: 'retryable-example',
+  stages: [
+    {
+      name: 'fetch-report',
+      mode: 'single',
+      actor: 'ReportFetcher',
+      retry: {
+        maxAttempts: 5,
+        backoff: 'exponential',
+        backoffDelay: 500,       // first retry waits 0.5s
+        maxBackoffDelay: 15_000  // ceiling for the exponential curve
+      },
+      config: {
+        concurrency: 4          // throttle to 4 active tasks for this stage
+      },
+      input: { id: '$.trigger.reportId' }
+    }
+  ]
+}
+```
+
+#### What the Orchestrator Does
+
+- **Active/Pending Queues**: Each `StageState` tracks `activeTasks` and a FIFO `pendingTasks` buffer. When `concurrency` is reached, new work is parked until slots free up.
+- **Deterministic Retry Metadata**: Every dispatched task carries `retryAttempt` and the resolved `StageRetryPolicy` in its payload. The worker echoes those fields back on success/failure so the orchestrator always knows whether it should reschedule.
+- **Backoff Calculation**: Upon a failure, the orchestrator computes the next delay using either fixed or exponential backoff, clamped to `maxBackoffDelay`, before re-enqueueing the task. Attempts are capped at `maxAttempts`.
+- **Durable Audit Trail**: Every state transition (`queued`, `running`, `failed`, `completed`, etc.) is flushed to the `PipelineStateStore`, making retries visible in observability tooling and replay logs.
+
+This combination means stages no longer stampede downstream dependencies after a blip—work is retried with controlled fan-out, and operators can inspect precise retry histories straight from Redis.
+
 ---
 
 ## Complete Execution Example

@@ -4,6 +4,7 @@ import type { JournalStore } from '../storage/journal-store'
 import type { ActorState, TraceContext } from '../types'
 import { TraceWriter } from '../observability/tracer'
 import { TelemetryRecorder, createSpanTracker } from '../observability/telemetry-recorder'
+import type { MetricsCollector } from '../observability/types'
 
 /**
  * Factory function to create actor instances
@@ -19,16 +20,19 @@ export class ActorRuntime {
   private actorLocks = new Map<string, any>() // Track locks by actorId
   private tracer?: TraceWriter
   private journalStore?: JournalStore
+  private metricsCollector?: MetricsCollector
   
   constructor(
     private stateStore: StateStore,
     private messageQueue: MessageQueue,
     private lockManager: LockManager,
     tracer?: TraceWriter,
-    journalStore?: JournalStore
+    journalStore?: JournalStore,
+    metricsCollector?: MetricsCollector
   ) {
     this.tracer = tracer
     this.journalStore = journalStore
+    this.metricsCollector = metricsCollector
   }
 
   /**
@@ -42,21 +46,29 @@ export class ActorRuntime {
    * Activate an actor - load state, acquire lock, instantiate
    */
   async activateActor(actorId: string, actorType: string, contextOverrides?: Partial<ActorContext>): Promise<Actor> {
+    const startTime = Date.now()
+    
     // Check if already active
     const existing = this.activeActors.get(actorId)
     if (existing) {
+      this.metricsCollector?.emit('actor.activation.cached', 1, { actorType })
       return existing
     }
 
     // Acquire distributed lock
+    const lockStart = Date.now()
     const lock = await this.lockManager.acquire(`actor:${actorId}`, 30000)
     if (!lock) {
+      this.metricsCollector?.emit('actor.activation.lock_failed', 1, { actorType })
       throw new Error(`Actor ${actorId} is already active elsewhere`)
     }
+    this.metricsCollector?.timing('actor.lock.acquire', Date.now() - lockStart, { actorType })
 
     try {
       // Load state from storage
+      const stateLoadStart = Date.now()
       const stored = await this.stateStore.load(actorId)
+      this.metricsCollector?.timing('actor.state.load', Date.now() - stateLoadStart, { actorType })
       
       // Get factory
       const factory = this.actorTypes.get(actorType)
@@ -153,11 +165,17 @@ export class ActorRuntime {
 
       // Start heartbeat to keep lock alive
       this.startHeartbeat(actorId, lock)
+      
+      // Record metrics
+      this.metricsCollector?.emit('actor.activation.success', 1, { actorType })
+      this.metricsCollector?.timing('actor.activation.duration', Date.now() - startTime, { actorType })
+      this.metricsCollector?.recordActorEvent('created')
 
       return actor
     } catch (error) {
       // Release lock on error
       await this.lockManager.release(lock)
+      this.metricsCollector?.emit('actor.activation.failed', 1, { actorType })
       throw error
     }
   }
@@ -166,12 +184,16 @@ export class ActorRuntime {
    * Deactivate an actor - save state, release lock, remove from memory
    */
   async deactivateActor(actorId: string): Promise<void> {
+    const startTime = Date.now()
     const actor = this.activeActors.get(actorId)
     if (!actor) {
       return
     }
+    
+    const actorType = actor['context'].actorType
 
     // Save state
+    const saveStart = Date.now()
     const state: ActorState = {
       id: actorId,
       partitionKey: actor['context'].actorType,
@@ -188,6 +210,7 @@ export class ActorRuntime {
     }
 
     await this.stateStore.save(actorId, state, actor['context'].trace)
+    this.metricsCollector?.timing('actor.state.save', Date.now() - saveStart, { actorType })
 
     // Release lock
     const lock = this.actorLocks.get(actorId)
@@ -201,6 +224,11 @@ export class ActorRuntime {
 
     // Remove from active actors
     this.activeActors.delete(actorId)
+    
+    // Record metrics
+    this.metricsCollector?.emit('actor.deactivation.success', 1, { actorType })
+    this.metricsCollector?.timing('actor.deactivation.duration', Date.now() - startTime, { actorType })
+    this.metricsCollector?.recordActorEvent('evicted')
   }
 
   /**

@@ -64,6 +64,9 @@ export interface StageDefinition {
   
   // Execution mode (extensible via executor registry)
   mode: 'single' | 'scatter' | 'gather' | 'map-reduce' | 'broadcast' | 'fork-join' | 'human-approval' | string
+
+  // Optional explicit dependencies (stage names this stage waits on)
+  dependsOn?: string | string[]
   
   // Executor-specific configuration
   executorConfig?: Record<string, any>  // Type-safe configs per executor
@@ -98,14 +101,13 @@ export interface StageDefinition {
     concurrency?: number
     timeout?: number
     retryPolicy?: RetryPolicy
+    leaseTtlMs?: number
+    initialDelayMs?: number
+    deadLetterQueue?: string
   }
   
   // NEW: Retry configuration (maps to BullMQ job options)
-  retry?: {
-    maxAttempts: number
-    backoff?: 'exponential' | 'fixed'
-    backoffDelay?: number     // Initial delay in ms
-  }
+  retry?: StageRetryPolicy
   
   // NEW: Circuit breaker configuration
   circuitBreaker?: {
@@ -135,6 +137,13 @@ export interface RetryPolicy {
   backoff: 'linear' | 'exponential'
   initialDelay: number
   maxDelay?: number
+}
+
+export interface StageRetryPolicy {
+  maxAttempts: number
+  backoff?: 'fixed' | 'exponential'
+  backoffDelay?: number
+  maxBackoffDelay?: number
 }
 
 // ============================================================================

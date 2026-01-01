@@ -5,44 +5,46 @@
  * for common cases while preserving full journal power for advanced scenarios.
  */
 
+type MaybePromise<T> = T | Promise<T>
+
 /**
- * Simple key-value state API
+ * Simple key-value state API with async semantics
  */
 export interface SimpleState {
   /**
    * Get a value from state
    */
-  get<T = unknown>(key: string): T | undefined
+  get<T = unknown>(key: string): Promise<T | undefined>
   
   /**
    * Set a value in state
    */
-  set(key: string, value: unknown): void
+  set(key: string, value: unknown): Promise<void>
   
   /**
    * Delete a key from state
    */
-  delete(key: string): void
+  delete(key: string): Promise<void>
   
   /**
    * Clear all state
    */
-  clear(): void
+  clear(): Promise<void>
   
   /**
    * Check if key exists
    */
-  has(key: string): boolean
+  has(key: string): Promise<boolean>
   
   /**
    * Get all keys
    */
-  keys(): string[]
+  keys(): Promise<string[]>
   
   /**
    * Get all entries
    */
-  entries(): [string, unknown][]
+  entries(): Promise<[string, unknown][]>
 }
 
 /**
@@ -50,38 +52,50 @@ export interface SimpleState {
  */
 export class SimpleStateImpl implements SimpleState {
   constructor(
-    private getState: () => Record<string, unknown>,
-    private setState: (newState: Record<string, unknown>) => void
+    private readonly getState: () => MaybePromise<Record<string, unknown>>,
+    private readonly setState: (newState: Record<string, unknown>) => MaybePromise<void>
   ) {}
 
-  get<T = unknown>(key: string): T | undefined {
-    return this.getState()[key] as T | undefined
+  private async snapshot(): Promise<Record<string, unknown>> {
+    return await this.getState()
   }
 
-  set(key: string, value: unknown): void {
-    const state = this.getState()
-    this.setState({ ...state, [key]: value })
+  private async commit(next: Record<string, unknown>): Promise<void> {
+    await this.setState(next)
   }
 
-  delete(key: string): void {
-    const state = this.getState()
+  async get<T = unknown>(key: string): Promise<T | undefined> {
+    const state = await this.snapshot()
+    return state[key] as T | undefined
+  }
+
+  async set(key: string, value: unknown): Promise<void> {
+    const state = await this.snapshot()
+    await this.commit({ ...state, [key]: value })
+  }
+
+  async delete(key: string): Promise<void> {
+    const state = await this.snapshot()
     const { [key]: _, ...newState } = state
-    this.setState(newState)
+    await this.commit(newState)
   }
 
-  clear(): void {
-    this.setState({})
+  async clear(): Promise<void> {
+    await this.commit({})
   }
 
-  has(key: string): boolean {
-    return key in this.getState()
+  async has(key: string): Promise<boolean> {
+    const state = await this.snapshot()
+    return key in state
   }
 
-  keys(): string[] {
-    return Object.keys(this.getState())
+  async keys(): Promise<string[]> {
+    const state = await this.snapshot()
+    return Object.keys(state)
   }
 
-  entries(): [string, unknown][] {
-    return Object.entries(this.getState())
+  async entries(): Promise<[string, unknown][]> {
+    const state = await this.snapshot()
+    return Object.entries(state)
   }
 }

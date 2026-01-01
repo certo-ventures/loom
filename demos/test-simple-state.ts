@@ -13,42 +13,44 @@ class CounterActor extends Actor {
     
     if (input.action === 'increment') {
       // Simple API - get current count
-      const count = this.simpleState.get<number>('count') ?? 0
-      this.simpleState.set('count', count + 1)
+      const count = (await this.simpleState.get<number>('count')) ?? 0
+      await this.simpleState.set('count', count + 1)
       console.log(`   Count: ${count} → ${count + 1}`)
     }
     
     if (input.action === 'set') {
-      this.simpleState.set('count', input.value!)
+      await this.simpleState.set('count', input.value!)
       console.log(`   Count set to: ${input.value}`)
     }
     
     if (input.action === 'add-metadata') {
-      this.simpleState.set('lastUpdated', new Date().toISOString())
-      this.simpleState.set('user', 'alice')
+      await this.simpleState.set('lastUpdated', new Date().toISOString())
+      await this.simpleState.set('user', 'alice')
       console.log(`   Metadata added`)
     }
     
     if (input.action === 'show-all') {
-      console.log(`   Keys: ${this.simpleState.keys().join(', ')}`)
+      const keys = await this.simpleState.keys()
+      console.log(`   Keys: ${keys.join(', ')}`)
       console.log(`   Entries:`)
-      for (const [key, value] of this.simpleState.entries()) {
+      const entries = await this.simpleState.entries()
+      for (const [key, value] of entries) {
         console.log(`     ${key}: ${JSON.stringify(value)}`)
       }
     }
     
     if (input.action === 'delete') {
-      this.simpleState.delete('user')
+      await this.simpleState.delete('user')
       console.log(`   Deleted 'user' key`)
     }
     
     if (input.action === 'check') {
-      console.log(`   Has 'count': ${this.simpleState.has('count')}`)
-      console.log(`   Has 'user': ${this.simpleState.has('user')}`)
+      console.log(`   Has 'count': ${await this.simpleState.has('count')}`)
+      console.log(`   Has 'user': ${await this.simpleState.has('user')}`)
     }
     
     if (input.action === 'clear') {
-      this.simpleState.clear()
+      await this.simpleState.clear()
       console.log(`   All state cleared`)
     }
   }

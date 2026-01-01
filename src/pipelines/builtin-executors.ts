@@ -25,20 +25,12 @@ export class SingleExecutor extends BaseStageExecutor {
   }
   
   async execute(context: ExecutionContext): Promise<ExecutionResult> {
-    const { pipelineId, stage, pipelineContext, messageQueue } = context
+    const { stage, pipelineContext } = context
     
     const input = this.resolveInput(stage.input, pipelineContext)
     const actorType = this.resolveActor(stage, pipelineContext)
     
-    const message = this.createMessage(
-      pipelineId,
-      stage.name,
-      actorType,
-      0,
-      input
-    )
-    
-    await messageQueue.enqueue(`actor-${actorType}`, message)
+    await this.enqueueActorTask(context, actorType, 0, input)
     
     console.log(`   🎯 Single actor: ${actorType}`)
     console.log(`   ✅ Message enqueued to: actor-${actorType}`)
@@ -64,7 +56,7 @@ export class ScatterExecutor extends BaseStageExecutor {
   }
   
   async execute(context: ExecutionContext): Promise<ExecutionResult> {
-    const { pipelineId, stage, pipelineContext, messageQueue } = context
+    const { stage, pipelineContext } = context
     
     if (!stage.scatter) {
       throw new Error(`Stage ${stage.name} missing scatter config`)
@@ -132,15 +124,7 @@ export class ScatterExecutor extends BaseStageExecutor {
       const input = this.resolveInput(stage.input, scopedContext)
       const actorType = this.resolveActor(stage, scopedContext)
       
-      const message = this.createMessage(
-        pipelineId,
-        stage.name,
-        actorType,
-        i,
-        input
-      )
-      
-      await messageQueue.enqueue(`actor-${actorType}`, message)
+      await this.enqueueActorTask(context, actorType, i, input)
     }
     
     const actorDisplay = typeof stage.actor === 'string' ? stage.actor : '[strategy]'
@@ -167,7 +151,7 @@ export class GatherExecutor extends BaseStageExecutor {
   }
   
   async execute(context: ExecutionContext): Promise<ExecutionResult> {
-    const { pipelineId, stage, pipelineContext, messageQueue } = context
+    const { stage, pipelineContext } = context
     
     if (!stage.gather) {
       throw new Error(`Stage ${stage.name} missing gather config`)
@@ -222,16 +206,7 @@ export class GatherExecutor extends BaseStageExecutor {
         const input = this.resolveInput(stage.input, scopedContext)
         const actorType = this.resolveActor(stage, scopedContext)
         
-        const message = this.createMessage(
-          pipelineId,
-          stage.name,
-          actorType,
-          groupIndex,
-          input,
-          { groupKey: key }
-        )
-        
-        await messageQueue.enqueue(`actor-${actorType}`, message)
+        await this.enqueueActorTask(context, actorType, groupIndex, input, { groupKey: key })
         console.log(`      └─ Group "${key}": ${items.length} items`)
         groupIndex++
       }
@@ -248,15 +223,7 @@ export class GatherExecutor extends BaseStageExecutor {
       
       const actorType = this.resolveActor(stage, pipelineContext)
       
-      const message = this.createMessage(
-        pipelineId,
-        stage.name,
-        actorType,
-        0,
-        input
-      )
-      
-      await messageQueue.enqueue(`actor-${actorType}`, message)
+      await this.enqueueActorTask(context, actorType, 0, input)
       
       console.log(`   ✅ Single consolidation message enqueued`)
       
@@ -283,7 +250,7 @@ export class BroadcastExecutor extends BaseStageExecutor {
   }
   
   async execute(context: ExecutionContext): Promise<ExecutionResult> {
-    const { pipelineId, stage, pipelineContext, messageQueue } = context
+    const { stage, pipelineContext } = context
     const config = this.getConfig<BroadcastConfig>(stage)
     
     const input = this.resolveInput(stage.input, pipelineContext)
@@ -293,15 +260,7 @@ export class BroadcastExecutor extends BaseStageExecutor {
     for (let i = 0; i < config.actors.length; i++) {
       const actorType = config.actors[i]
       
-      const message = this.createMessage(
-        pipelineId,
-        stage.name,
-        actorType,
-        i,
-        input
-      )
-      
-      await messageQueue.enqueue(`actor-${actorType}`, message)
+      await this.enqueueActorTask(context, actorType, i, input)
       console.log(`      └─ ${actorType}`)
     }
     
@@ -330,7 +289,7 @@ export class MapReduceExecutor extends BaseStageExecutor {
   }
   
   async execute(context: ExecutionContext): Promise<ExecutionResult> {
-    const { pipelineId, stage, pipelineContext, messageQueue } = context
+    const { stage, pipelineContext } = context
     const config = this.getConfig<MapReduceConfig>(stage)
     
     // This is a compound executor - would need orchestrator support
@@ -381,16 +340,7 @@ export class ForkJoinExecutor extends BaseStageExecutor {
         ? this.resolveInput(branch.input, pipelineContext)
         : this.resolveInput(stage.input, pipelineContext)
       
-      const message = this.createMessage(
-        pipelineId,
-        stage.name,
-        branch.actor,
-        i,
-        input,
-        { branchName: branch.name }
-      )
-      
-      await messageQueue.enqueue(`actor-${branch.actor}`, message)
+      await this.enqueueActorTask(context, branch.actor, i, input, { branchName: branch.name })
       console.log(`      └─ Branch "${branch.name}": ${branch.actor}`)
     }
     

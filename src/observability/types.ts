@@ -98,6 +98,17 @@ export interface MetricsResponse {
 }
 
 /**
+ * Generic metric event for custom metrics
+ */
+export interface MetricEvent {
+  name: string
+  type: 'counter' | 'gauge' | 'timing'
+  value: number
+  labels?: Record<string, string>
+  timestamp?: number
+}
+
+/**
  * Metrics collector interface
  */
 export interface MetricsCollector {
@@ -125,4 +136,15 @@ export interface MetricsCollector {
    * Record a lock event
    */
   recordLockEvent(event: 'acquired' | 'released' | 'failed', durationMs?: number): void
+  
+  /**
+   * Emit a custom metric
+   * Allows runtime components to emit domain-specific metrics
+   */
+  emit(name: string, value: number, labels?: Record<string, string>): void
+  
+  /**
+   * Emit a timing metric
+   */
+  timing(name: string, durationMs: number, labels?: Record<string, string>): void
 }

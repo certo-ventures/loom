@@ -24,9 +24,9 @@ class HybridActor extends Actor {
     
     if (input.mode === 'new-api') {
       // NEW API - simple and clean!
-      this.simpleState.set('count', 20)
-      this.simpleState.set('timestamp', Date.now())
-      this.simpleState.set('source', 'simpleState')
+      await this.simpleState.set('count', 20)
+      await this.simpleState.set('timestamp', Date.now())
+      await this.simpleState.set('source', 'simpleState')
       console.log('   ✅ simpleState works')
       console.log(`   State: ${JSON.stringify(this.state)}`)
     }
@@ -34,15 +34,15 @@ class HybridActor extends Actor {
     if (input.mode === 'mixed') {
       // MIXED - both APIs together!
       this.updateState({ batch: [1, 2, 3] })
-      this.simpleState.set('individual', 'value')
+      await this.simpleState.set('individual', 'value')
       console.log('   ✅ Both APIs work together')
       console.log(`   State: ${JSON.stringify(this.state)}`)
     }
     
     if (input.mode === 'verify-journal') {
       // Verify journal records state updates
-      this.simpleState.set('test', 'A')
-      this.simpleState.set('test', 'B')
+      await this.simpleState.set('test', 'A')
+      await this.simpleState.set('test', 'B')
       this.updateState({ complex: { nested: true } })
       
       const journal = this.getJournal()

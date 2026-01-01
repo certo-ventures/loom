@@ -1,0 +1,62 @@
+{
+  "name": "customer-service-memory",
+  "version": "1.0.0",
+  "description": "Extract customer information from support conversations and store in memory graph",
+  
+  "stages": [
+    {
+      "name": "extract-entities",
+      "actor": "EntityExtractor",
+      "mode": "single",
+      "input": {
+        "text": "$.conversation.text",
+        "extractorConfig": "$.config.extractor"
+      },
+      "output": {
+        "entities": "$.entities",
+        "facts": "$.facts"
+      }
+    },
+    {
+      "name": "filter-high-confidence",
+      "actor": "ConfidenceFilter",
+      "mode": "single",
+      "input": {
+        "facts": "$.extract-entities.facts",
+        "threshold": "$.config.confidenceThreshold"
+      },
+      "output": {
+        "filtered_facts": "$.filtered_facts"
+      }
+    },
+    {
+      "name": "transform-to-graph",
+      "actor": "FactTransformer",
+      "mode": "single",
+      "input": {
+        "facts": "$.filter-high-confidence.filtered_facts",
+        "entities": "$.extract-entities.entities",
+        "actorId": "$.customerId",
+        "graphId": "$.config.graphId",
+        "episodeId": "$.conversationId"
+      },
+      "output": {
+        "transformed_facts": "$.transformed_facts"
+      }
+    },
+    {
+      "name": "store-memory",
+      "actor": "MemoryStore",
+      "mode": "single",
+      "input": {
+        "facts": "$.transform-to-graph.transformed_facts",
+        "storageConfig": "$.config.storage"
+      }
+    }
+  ],
+  
+  "config": {
+    "maxConcurrency": 5,
+    "timeout": 30000
+  }
+}
