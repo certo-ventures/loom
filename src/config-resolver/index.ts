@@ -10,6 +10,8 @@
 
 // Re-export everything
 export { InMemoryConfigResolver } from './in-memory-resolver'
+export { CosmosConfigResolver } from './cosmos-resolver'
+export { LayeredConfigResolver } from './layered-resolver'
 export { ConfigAdmin } from './admin'
 export { buildKeyPaths, parseKeyPath, validateKeyPath } from './path-resolver'
 

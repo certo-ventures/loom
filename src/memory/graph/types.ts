@@ -66,6 +66,9 @@ export interface MemoryQuery {
   embedding?: number[];
   asOf?: Date;
   limit?: number;
+  source_entity_ids?: string[];
+  target_entity_ids?: string[];
+  relations?: string[];
 }
 
 export interface MemoryStorage {

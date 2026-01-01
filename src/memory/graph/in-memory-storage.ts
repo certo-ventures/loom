@@ -162,6 +162,27 @@ export class InMemoryGraphStorage implements MemoryStorage {
     return query.limit ? results.slice(0, query.limit) : results;
   }
 
+  async getFactsForEntity(entityId: string, graph_id: string): Promise<Fact[]> {
+    return Array.from(this.facts.values())
+      .filter(f => 
+        f.graph_id === graph_id && 
+        (f.sourceEntityId === entityId || f.targetEntityId === entityId)
+      )
+      .sort((a, b) => b.lamport_ts - a.lamport_ts);
+  }
+
+  async getFactsBetween(sourceEntityId: string, targetEntityId: string, graph_id: string): Promise<Fact[]> {
+    return Array.from(this.facts.values())
+      .filter(f => 
+        f.graph_id === graph_id && 
+        (
+          (f.sourceEntityId === sourceEntityId && f.targetEntityId === targetEntityId) ||
+          (f.sourceEntityId === targetEntityId && f.targetEntityId === sourceEntityId)
+        )
+      )
+      .sort((a, b) => b.lamport_ts - a.lamport_ts);
+  }
+
   async close(): Promise<void> {
     this.episodes.clear();
     this.entities.clear();

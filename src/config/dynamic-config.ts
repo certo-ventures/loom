@@ -97,9 +97,17 @@ export class DynamicConfigService {
   }
 
   private async loadConfigs(tenantId: string, actorType?: string): Promise<DynamicConfig[]> {
+    // Fixed query filter: Use proper NULL checks for actorType
+    // Query gets:
+    // 1. Tenant-level configs (actorType IS NULL or NOT DEFINED)
+    // 2. Actor-specific configs (actorType = @actorType)
     const query = actorType
-      ? `SELECT * FROM c WHERE c.tenantId = @tenantId AND (c.actorType = @actorType OR c.actorType = null) ORDER BY c.priority DESC`
-      : `SELECT * FROM c WHERE c.tenantId = @tenantId AND c.actorType = null ORDER BY c.priority DESC`
+      ? `SELECT * FROM c WHERE c.tenantId = @tenantId 
+         AND (c.actorType = @actorType OR NOT IS_DEFINED(c.actorType) OR c.actorType = null)
+         ORDER BY c.priority DESC`
+      : `SELECT * FROM c WHERE c.tenantId = @tenantId 
+         AND (NOT IS_DEFINED(c.actorType) OR c.actorType = null)
+         ORDER BY c.priority DESC`
 
     const parameters = [{ name: '@tenantId', value: tenantId }]
     if (actorType) {
@@ -118,19 +126,37 @@ export class DynamicConfigService {
       return this.getDefaultConfig()
     }
 
-    // Start with default
+    // Start with default (priority 0)
     const merged: DynamicConfig = this.getDefaultConfig()
     
-    // Apply configs in order (already sorted by priority DESC)
-    for (const config of configs.reverse()) {
+    // Sort by priority ASCENDING (lowest first) to ensure proper override order
+    // This way higher priority configs override lower ones as we iterate
+    const sorted = [...configs].sort((a, b) => a.priority - b.priority)
+    
+    // Apply configs in priority order (lowest to highest)
+    // Later configs override earlier ones
+    for (const config of sorted) {
+      // Deep merge memory config
       if (config.memory) {
         merged.memory = { ...merged.memory, ...config.memory }
       }
+      // Deep merge LLM config
       if (config.llm) {
         merged.llm = { ...merged.llm, ...config.llm }
       }
+      // Deep merge settings
       if (config.settings) {
         merged.settings = { ...merged.settings, ...config.settings }
+      }
+      // Update metadata to reflect highest priority config
+      merged.id = config.id
+      merged.tenantId = config.tenantId
+      if (config.actorType) {
+        merged.actorType = config.actorType
+      }
+      merged.priority = config.priority
+      if (config.updatedAt) {
+        merged.updatedAt = config.updatedAt
       }
     }
     

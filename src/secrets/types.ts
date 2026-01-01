@@ -31,6 +31,27 @@ export interface SetSecretOptions {
   tags?: Record<string, string>
 }
 
+/**
+ * Generic secret for unified persistence
+ */
+export interface Secret {
+  key: string
+  value: string
+  metadata?: Record<string, string>
+  version: number
+  expiresAt?: string
+}
+
+/**
+ * Unified secrets store interface
+ */
+export interface SecretsStore {
+  getSecret(key: string): Promise<Secret | null>
+  setSecret(secret: Secret): Promise<void>
+  deleteSecret(key: string): Promise<void>
+  listSecrets(prefix?: string): Promise<string[]>
+}
+
 export interface SecretsClient {
   /**
    * Get a secret by name (returns latest version if version not specified)
