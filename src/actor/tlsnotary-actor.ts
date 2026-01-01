@@ -53,7 +53,14 @@ export abstract class TLSNotaryActor extends Actor {
    */
   async initializeVerifier(options: VerifierOptions = {}) {
     if (!this.verifier) {
-      this.verifier = await createVerifier(options)
+      // Import createVerifier from production module
+      const { createVerifier: createProductionVerifier } = await import('../tlsnotary/production')
+      this.verifier = await createProductionVerifier({
+        mode: (options as any).mode || 'development',
+        allowMock: (options as any).allowMock,
+        trustedNotaries: options.trustedNotaries,
+        maxPresentationAge: (options as any).maxPresentationAge,
+      })
       const info = this.verifier.getInfo()
       console.log(`✅ [TLSNotaryActor] Verifier initialized: ${info.type} v${info.version}`)
     }

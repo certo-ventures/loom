@@ -35,7 +35,7 @@ export interface ActorState {
   id: string
   partitionKey: string
   actorType: string
-  status: 'active' | 'suspended' | 'completed' | 'failed'
+  status: 'active' | 'suspended' | 'completed' | 'failed' | 'executing'
   state: Record<string, unknown>
   correlationId: string
   createdAt: string

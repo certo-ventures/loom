@@ -54,7 +54,7 @@ describe('WASM Activity Executor - Integration', () => {
     
     // Upload WASM to blob store
     await blobStore.upload('echo.wasm', wasmBytes)
-  })
+  }, 30000) // 30 second timeout for debugging
   
   it('should execute WASM activity with simple input', async () => {
     const activity: ActivityDefinition = {

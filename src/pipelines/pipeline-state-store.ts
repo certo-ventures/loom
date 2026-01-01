@@ -78,6 +78,7 @@ export interface TaskAttemptRecord {
   workerId?: string
   queuedAt?: number
   startedAt?: number
+  retryAttempt?: number
   completedAt?: number
   availableAt?: number
   outputRef?: string

@@ -133,7 +133,7 @@ export interface TraceQuery {
   }
   
   /** Filter by status */
-  status?: 'running' | 'completed' | 'failed'
+  status?: 'running' | 'completed' | 'failed' | 'success' | 'in-progress'
   
   /** Limit results */
   limit?: number
@@ -148,12 +148,15 @@ export interface TraceStats {
   
   /** Completed traces */
   completed: number
+  completedTraces?: number
   
   /** Failed traces */
   failed: number
+  failedTraces?: number
   
   /** Running traces */
   running: number
+  runningTraces?: number
   
   /** Average duration (ms) */
   avgDuration: number

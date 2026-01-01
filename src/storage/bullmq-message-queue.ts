@@ -83,9 +83,9 @@ export class BullMQMessageQueue implements MessageQueue {
           priority: jobOptions.priority,
           delay: jobOptions.delay,
           attempts: jobOptions.attempts,
-          backoff: jobOptions.backoff,
-          removeOnComplete: jobOptions.removeOnComplete,
-          removeOnFail: jobOptions.removeOnFail
+          backoff: jobOptions.backoff as any,
+          removeOnComplete: jobOptions.removeOnComplete as any,
+          removeOnFail: jobOptions.removeOnFail as any
         },
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

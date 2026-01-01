@@ -125,7 +125,7 @@ export class CosmosTraceStore implements TraceStore {
         }
       }))
 
-      await this.container.items.bulk(operations)
+      await this.container.items.bulk(operations as any)
     } catch (error) {
       // On error, restore traces to buffer for retry
       this.batchBuffer.unshift(...tracesToFlush)
@@ -282,10 +282,15 @@ export class CosmosTraceStore implements TraceStore {
     if (resources.length === 0) {
       return {
         totalTraces: 0,
+        completed: 0,
         completedTraces: 0,
+        failed: 0,
         failedTraces: 0,
+        running: 0,
         runningTraces: 0,
-        avgDurationMs: 0,
+        avgDuration: 0,
+        minDuration: 0,
+        maxDuration: 0,
         totalEvents: 0,
       }
     }
@@ -293,10 +298,15 @@ export class CosmosTraceStore implements TraceStore {
     const stats = resources[0]
     return {
       totalTraces: stats.totalTraces || 0,
+      completed: stats.completedTraces || 0,
       completedTraces: stats.completedTraces || 0,
+      failed: stats.failedTraces || 0,
       failedTraces: stats.failedTraces || 0,
+      running: stats.runningTraces || 0,
       runningTraces: stats.runningTraces || 0,
-      avgDurationMs: stats.avgDurationMs || 0,
+      avgDuration: stats.avgDuration || 0,
+      minDuration: stats.minDuration || 0,
+      maxDuration: stats.maxDuration || 0,
       totalEvents: stats.totalEvents || 0,
     }
   }

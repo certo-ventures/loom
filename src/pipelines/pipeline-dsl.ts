@@ -141,7 +141,7 @@ export interface RetryPolicy {
 
 export interface StageRetryPolicy {
   maxAttempts: number
-  backoff?: 'fixed' | 'exponential'
+  backoff?: 'fixed' | 'exponential' | 'linear'
   backoffDelay?: number
   maxBackoffDelay?: number
 }

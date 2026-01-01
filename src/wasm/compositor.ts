@@ -5,20 +5,27 @@
  * WebAssembly function tables, enabling pure WASM execution with zero host overhead.
  * 
  * Perfect for Monte Carlo simulations where billions of function calls are needed.
+ * 
+ * Security: Enforces capability manifests and execution timeouts
  */
 
 import * as fs from 'fs'
 import * as path from 'path'
+import type { WasmManifest, WasmCapabilities } from './capabilities'
+import { validateManifest, createExecutionContext, checkTimeout, TimeoutError, DEFAULT_CAPABILITIES } from './capabilities'
 
 export interface ModelModule {
   name: string
   wasmPath: string
   functionName: string
+  manifest?: WasmManifest
 }
 
 export interface CompositeEngineConfig {
   enginePath: string
   models: ModelModule[]
+  capabilities?: WasmCapabilities
+  timeout?: number
 }
 
 export class WasmCompositor {
@@ -27,19 +34,39 @@ export class WasmCompositor {
   private modelInstances: Map<string, WebAssembly.Instance> = new Map()
   private functionTable?: WebAssembly.Table
   private memory?: WebAssembly.Memory
+  private capabilities: WasmCapabilities
+  private timeout: number
 
-  constructor(private config: CompositeEngineConfig) {}
+  constructor(private config: CompositeEngineConfig) {
+    this.capabilities = config.capabilities || DEFAULT_CAPABILITIES
+    this.timeout = config.timeout || this.capabilities.timeout || 5000
+  }
 
   /**
    * Load and compile all WASM modules, wire them as host imports
    */
   async initialize(): Promise<void> {
     console.log('🔧 Initializing WASM Compositor...')
+    
+    // Validate manifests if provided
+    for (const model of this.config.models) {
+      if (model.manifest) {
+        validateManifest(model.manifest, this.capabilities)
+        console.log(`✅ Validated manifest for ${model.name}`)
+      }
+    }
 
-    // Step 1: Create shared memory
-    this.memory = new WebAssembly.Memory({ initial: 10, maximum: 100 })
+    // Step 1: Create shared memory (within capability limits)
+    const maxMemoryPages = this.capabilities.maxMemoryMB 
+      ? Math.ceil(this.capabilities.maxMemoryMB / (64 / 1024))
+      : 100
+    
+    this.memory = new WebAssembly.Memory({ 
+      initial: Math.min(10, maxMemoryPages), 
+      maximum: maxMemoryPages 
+    })
 
-    console.log(`📦 Created shared memory`)
+    console.log(`📦 Created shared memory (max ${this.capabilities.maxMemoryMB || 64}MB)`)
 
     // Step 2: Load and instantiate model WASMs
     for (const model of this.config.models) {
@@ -97,7 +124,7 @@ export class WasmCompositor {
   }
 
   /**
-   * Execute the composite engine
+   * Execute the composite engine with timeout enforcement
    */
   execute(
     principal: number,
@@ -114,26 +141,42 @@ export class WasmCompositor {
       throw new Error('Engine not initialized. Call initialize() first.')
     }
 
-    const exports = this.engineInstance.exports as any
+    // Create execution context with timeout
+    const context = createExecutionContext(this.capabilities, this.timeout)
     
-    // Call the execute function
-    const resultPtr = exports.execute(
-      principal,
-      rate,
-      term,
-      currentRate,
-      fico,
-      origLTV,
-      propertyType,
-      state,
-      hpiChange
-    )
-    
-    // Read the JSON string result from WASM memory
-    const result = this.readString(resultPtr)
-    
-    // Parse and return
-    return JSON.parse(result)
+    try {
+      const exports = this.engineInstance.exports as any
+      
+      // Check timeout before execution
+      checkTimeout(context)
+      
+      // Call the execute function
+      const resultPtr = exports.execute(
+        principal,
+        rate,
+        term,
+        currentRate,
+        fico,
+        origLTV,
+        propertyType,
+        state,
+        hpiChange
+      )
+      
+      // Check timeout after execution
+      checkTimeout(context)
+      
+      // Read the JSON string result from WASM memory
+      const result = this.readString(resultPtr)
+      
+      // Parse and return
+      return JSON.parse(result)
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        console.error(`⏱️  WASM execution timeout after ${this.timeout}ms`)
+      }
+      throw error
+    }
   }
 
   /**

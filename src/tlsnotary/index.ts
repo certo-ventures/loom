@@ -8,8 +8,11 @@
  * ```typescript
  * import { createVerifier } from './tlsnotary'
  * 
- * // Create verifier (auto-selects WASM or Mock)
- * const verifier = await createVerifier()
+ * // Create verifier with production validation
+ * const verifier = await createVerifier({ 
+ *   mode: 'production',
+ *   allowMock: false 
+ * })
  * 
  * // Verify a TLS Notary presentation
  * const verified = await verifier.verify(presentation)
@@ -23,6 +26,7 @@
 
 import { MockTLSNotaryVerifier } from './mock-verifier'
 import { WasmTLSNotaryVerifier } from './wasm-verifier'
+import { createVerifier as createProductionVerifier } from './production'
 import type { TLSNotaryVerifier, VerifierOptions } from './types'
 
 // Re-export types
@@ -45,58 +49,16 @@ export type {
 export { MockTLSNotaryVerifier } from './mock-verifier'
 export { WasmTLSNotaryVerifier } from './wasm-verifier'
 
-/**
- * Create TLS Notary verifier
- * 
- * Automatically uses WASM verifier if available, falls back to mock
- * 
- * @param options Verifier options
- * @returns TLS Notary verifier instance
- * 
- * @example
- * ```typescript
- * // Auto-select (prefers WASM)
- * const verifier = await createVerifier()
- * 
- * // Force mock for testing
- * const mockVerifier = await createVerifier({ preferMock: true })
- * 
- * // With trusted notaries
- * const verifier = await createVerifier({
- *   trustedNotaries: ['notary_pubkey_1', 'notary_pubkey_2']
- * })
- * 
- * // With proof age limit
- * const verifier = await createVerifier({
- *   maxProofAge: 24 * 60 * 60 * 1000  // 24 hours
- * })
- * ```
- */
-export async function createVerifier(options: VerifierOptions = {}): Promise<TLSNotaryVerifier> {
-  // Force mock if requested
-  if (options.preferMock) {
-    console.log('📝 [TLSNotary] Using MockTLSNotaryVerifier (explicitly requested)')
-    return new MockTLSNotaryVerifier(options)
-  }
-  
-  // Try to load WASM verifier
-  try {
-    const verifier = new WasmTLSNotaryVerifier(options)
-    await verifier.initialize()
-    return verifier
-  } catch (error) {
-    console.warn('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    console.warn('📝 [TLSNotary] WASM verifier not available')
-    console.warn('   Falling back to MockTLSNotaryVerifier')
-    console.warn('   ')
-    console.warn('   To use real verification:')
-    console.warn('   1. Install Rust: https://rustup.rs/')
-    console.warn('   2. Run: npm run build:tlsn')
-    console.warn('   3. See: docs/tlsnotary/IMPLEMENTATION.md')
-    console.warn('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    return new MockTLSNotaryVerifier(options)
-  }
-}
+// Re-export production utilities
+export { 
+  createVerifier, 
+  healthCheck, 
+  validateProductionReadiness,
+  getVerifierInfo,
+  loadTLSNotaryConfigFromEnv,
+  ProductionReadinessError
+} from './production'
+export type { TLSNotaryConfig, HealthCheckResult } from './production'
 
 /**
  * Singleton verifier instance
@@ -115,9 +77,15 @@ let sharedVerifier: TLSNotaryVerifier | null = null
  */
 export async function getSharedVerifier(options: VerifierOptions = {}): Promise<TLSNotaryVerifier> {
   if (!sharedVerifier) {
-    sharedVerifier = await createVerifier(options)
+    // Convert VerifierOptions to TLSNotaryConfig
+    sharedVerifier = await createProductionVerifier({
+      mode: (options as any).mode || 'development',
+      allowMock: (options as any).allowMock,
+      trustedNotaries: options.trustedNotaries,
+      maxPresentationAge: (options as any).maxPresentationAge,
+    })
   }
-  return sharedVerifier
+  return sharedVerifier!
 }
 
 /**

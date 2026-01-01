@@ -87,7 +87,7 @@ export class OutboxRelay {
         jobId: outboxEntry.id,
         attempts: entry.stage?.retry?.maxAttempts || 3,
         backoff: entry.stage?.retry?.backoff ? {
-          type: entry.stage.retry.backoff,
+          type: (entry.stage.retry.backoff === 'linear' ? 'exponential' : entry.stage.retry.backoff) as 'exponential' | 'fixed',
           delay: entry.stage.retry.backoffDelay || 1000
         } : {
           type: 'exponential',

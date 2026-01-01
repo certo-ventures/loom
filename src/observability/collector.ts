@@ -92,7 +92,7 @@ export class InMemoryMetricsCollector implements MetricsCollector {
   /**
    * Record message event
    */
-  recordMessageEvent(event: 'sent' | 'received' | 'completed' | 'failed', durationMs?: number): void {
+  recordMessageEvent(event: 'sent' | 'received' | 'completed' | 'failed' | 'enqueued' | 'enqueue_failed' | 'processing_started' | 'retry_evaluation' | 'retry_scheduled' | 'moved_to_dlq' | 'retry_attempt' | 'retry_success' | 'retry_exhausted', durationMs?: number): void {
     switch (event) {
       case 'sent':
         this.messageMetrics.sent++

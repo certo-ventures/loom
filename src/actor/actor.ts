@@ -214,7 +214,7 @@ export abstract class Actor {
   /**
    * Main execution entry point - override this
    */
-  abstract execute(input: unknown): Promise<void>
+  abstract execute(input: unknown): Promise<unknown>
 
   /**
    * Streaming execution - yields progressive results

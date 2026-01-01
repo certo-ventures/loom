@@ -12,6 +12,10 @@ import type { ActorMetadata } from './actor-metadata'
 export * from './actor-lifecycle-events'
 export * from './actor-metadata'
 
+// Export distributed registries
+export * from './redis-actor-registry'
+export * from './cosmos-actor-registry'
+
 /**
  * Actor instance info in registry
  */

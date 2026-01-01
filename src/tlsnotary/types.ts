@@ -178,4 +178,10 @@ export interface VerifierOptions {
    * Proofs older than this are rejected
    */
   maxProofAge?: number
+  
+  /**
+   * Maximum presentation age in seconds
+   * For compatibility with production verifier
+   */
+  maxPresentationAge?: number
 }

@@ -136,8 +136,7 @@ export class InMemoryTraceStore implements TraceStore {
 
     return {
       totalTraces: traces.length,
-      completed,
-      failed,
+      completed,      completedTraces: completed,      failed,
       running,
       avgDuration,
       minDuration,

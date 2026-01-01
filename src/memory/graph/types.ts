@@ -71,6 +71,8 @@ export interface MemoryQuery {
   relations?: string[];
 }
 
+export type GraphStorage = MemoryStorage
+
 export interface MemoryStorage {
   addEpisode(episode: Episode): Promise<void>;
   getEpisodes(actorId: string, graph_id: string, limit?: number): Promise<Episode[]>;

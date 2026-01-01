@@ -1356,7 +1356,7 @@ interface PipelineContextState {
 
 interface StageState {
   stageName: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'blocked'
   expectedTasks: number
   completedTasks: number
   outputs: any[]
