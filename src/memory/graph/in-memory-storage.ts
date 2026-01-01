@@ -38,6 +38,16 @@ export class InMemoryGraphStorage implements MemoryStorage {
   private entities: Map<string, Entity> = new Map();
   private facts: Map<string, Fact> = new Map();
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryGraphStorage] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use CosmosGraphStorage or RedisGraphStorage instead.'
+      )
+    }
+  }
+
   async addEpisode(episode: Episode): Promise<void> {
     this.episodes.set(episode.id, episode);
   }

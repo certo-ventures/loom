@@ -16,6 +16,13 @@ export class InMemoryConfigResolver implements ConfigResolver {
     this.store = new Map()
     this.changeListeners = []
     
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryConfigResolver] Using in-memory adapter in production. ' +
+        'This is OK as a cache layer, but ensure persistence with CosmosConfigResolver.'
+      )
+    }
+    
     if (initialConfig) {
       for (const [key, value] of Object.entries(initialConfig)) {
         this.store.set(key, value)

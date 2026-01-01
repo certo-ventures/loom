@@ -6,6 +6,16 @@ import type { Lock, LockManager } from './lock-manager'
 export class InMemoryLockManager implements LockManager {
   private locks = new Map<string, Lock>()
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryLockManager] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use RedisLockManager instead.'
+      )
+    }
+  }
+
   async acquire(key: string, ttlMs: number): Promise<Lock | null> {
     const existing = this.locks.get(key)
     

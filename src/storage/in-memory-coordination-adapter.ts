@@ -8,6 +8,16 @@ import type { ActorLock, CoordinationAdapter } from './coordination-adapter'
 export class InMemoryCoordinationAdapter implements CoordinationAdapter {
   private locks = new Map<string, ActorLock>()
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryCoordinationAdapter] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use RedisCoordinationAdapter instead.'
+      )
+    }
+  }
+
   async acquireLock(actorId: string, ttlMs: number): Promise<ActorLock | null> {
     const existing = this.locks.get(actorId)
     if (existing && existing.expiresAt > Date.now()) {

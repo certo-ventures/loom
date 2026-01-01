@@ -7,6 +7,16 @@ import type { StateStore } from './state-store'
 export class InMemoryStateStore implements StateStore {
   private store = new Map<string, ActorState>()
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryStateStore] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use CosmosStateStore instead.'
+      )
+    }
+  }
+
   async save(actorId: string, state: ActorState, trace?: TraceContext): Promise<void> {
     this.store.set(actorId, state)
   }

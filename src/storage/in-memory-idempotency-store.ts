@@ -14,7 +14,15 @@ export class InMemoryIdempotencyStore implements IdempotencyStore {
   
   constructor(
     private defaultTtlSeconds: number = 86400 // 24 hours
-  ) {}
+  ) {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryIdempotencyStore] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use RedisIdempotencyStore or CosmosDBIdempotencyStore instead.'
+      )
+    }
+  }
   
   async get(key: string): Promise<IdempotencyRecord | undefined> {
     const record = this.records.get(key)

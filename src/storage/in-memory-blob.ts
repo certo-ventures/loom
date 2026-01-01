@@ -24,6 +24,16 @@ export interface Blob {
 export class InMemoryBlobStorage {
   private blobs = new Map<string, Blob>();
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryBlobStorage] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use Azure Blob Storage instead.'
+      )
+    }
+  }
+
   /**
    * Upload blob
    */

@@ -11,6 +11,14 @@ export class InMemorySecretsClient implements SecretsClient {
   private available = true
 
   constructor(initialSecrets?: Record<string, string>) {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemorySecretsClient] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use AzureKeyVault or CosmosSecretsStore instead.'
+      )
+    }
+    
     if (initialSecrets) {
       for (const [name, value] of Object.entries(initialSecrets)) {
         this.setSecretSync(name, value)

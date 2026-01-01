@@ -61,7 +61,15 @@ export class InMemoryMetricsCollector implements MetricsCollector {
       state?: any
       coordination?: any
     }
-  ) {}
+  ) {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '\u26a0\ufe0f  [InMemoryMetricsCollector] Using in-memory adapter in production. ' +
+        'Metrics will be lost on restart. ' +
+        'Consider using persistent metrics storage (Redis, Cosmos, or observability platform).'
+      )
+    }
+  }
   
   /**
    * Record actor event

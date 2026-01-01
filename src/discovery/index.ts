@@ -92,6 +92,16 @@ export interface ActorRegistry {
 export class InMemoryActorRegistry implements ActorRegistry {
   private registrations = new Map<string, ActorRegistration>()
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryActorRegistry] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use RedisActorRegistry or CosmosActorRegistry instead.'
+      )
+    }
+  }
+
   async register(registration: ActorRegistration): Promise<void> {
     this.registrations.set(registration.actorId, registration)
   }

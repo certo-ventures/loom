@@ -121,6 +121,16 @@ export interface WorkflowStore {
 export class InMemoryWorkflowStore implements WorkflowStore {
   private workflows = new Map<string, WorkflowVersion[]>(); // id -> versions
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryWorkflowStore] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use a persistent workflow store with Cosmos DB instead.'
+      )
+    }
+  }
+
   async create(id: string, definition: WorkflowDefinition, metadata?: Partial<WorkflowMetadata>): Promise<WorkflowVersion> {
     if (this.workflows.has(id)) {
       throw new Error(`Workflow ${id} already exists`);
@@ -318,6 +328,14 @@ export class InMemoryWorkflowExecutor implements WorkflowExecutor {
   private resilienceManager: any; // ResilienceManager
 
   constructor(deps: WorkflowExecutorDependencies = {}) {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryWorkflowExecutor] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use distributed workflow execution with actors instead.'
+      )
+    }
+    
     this.deps = deps;
     // Lazy load resilience to avoid circular dependency
     if (deps.enableResilience !== false) {

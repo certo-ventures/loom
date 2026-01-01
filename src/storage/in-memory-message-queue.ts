@@ -17,6 +17,16 @@ export class InMemoryMessageQueue implements MessageQueue {
   private deadLetters = new Map<string, QueuedMessage[]>()
   private processing = new Map<string, QueuedMessage>()
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryMessageQueue] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use BullMQMessageQueue with Redis instead.'
+      )
+    }
+  }
+
   async enqueue(queueName: string, message: Message, priority = 0): Promise<void> {
     if (!this.queues.has(queueName)) {
       this.queues.set(queueName, [])

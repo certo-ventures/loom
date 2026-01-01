@@ -10,6 +10,16 @@ import type { SecretsStore, Secret } from './types'
 export class InMemorySecretsStore implements SecretsStore {
   private secrets = new Map<string, Secret>()
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemorySecretsStore] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use AzureKeyVault or CosmosSecretsStore instead.'
+      )
+    }
+  }
+
   async getSecret(key: string): Promise<Secret | null> {
     const secret = this.secrets.get(key)
     

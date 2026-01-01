@@ -8,6 +8,16 @@ import type { ActivityDefinition } from '../activities/wasm-executor'
 export class InMemoryActivityStore implements ActivityStore {
   private activities = new Map<string, ActivityDefinition>()
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryActivityStore] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use CosmosActivityStore instead.'
+      )
+    }
+  }
+
   async save(definition: ActivityDefinition): Promise<void> {
     const key = this.makeKey(definition.name, definition.version)
     this.activities.set(key, definition)

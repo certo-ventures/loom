@@ -9,6 +9,16 @@ export class InMemoryJournalStore implements JournalStore {
   private entries: Map<string, JournalEntry[]> = new Map()
   private snapshots: Map<string, JournalSnapshot> = new Map()
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryJournalStore] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use RedisJournalStore instead.'
+      )
+    }
+  }
+
   async appendEntry(actorId: string, entry: JournalEntry): Promise<void> {
     const existing = this.entries.get(actorId) || []
     // Create new array to avoid mutation

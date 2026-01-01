@@ -24,6 +24,16 @@ export interface QueryOptions {
 export class InMemoryCosmos {
   private documents = new Map<string, CosmosDocument>();
 
+  constructor() {
+    if (process.env.NODE_ENV === 'production') {
+      console.warn(
+        '⚠️  [InMemoryCosmos] Using in-memory adapter in production. ' +
+        'This is not recommended for distributed systems. ' +
+        'Use actual Azure Cosmos DB instead.'
+      )
+    }
+  }
+
   /**
    * Create document
    */
