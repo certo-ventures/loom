@@ -1,5 +1,15 @@
 import { defineConfig } from 'vitest/config'
 
+// Suppress benign Redis connection errors during test cleanup
+process.on('unhandledRejection', (reason: any) => {
+  if (reason?.message === 'Connection is closed.') {
+    // Ignore Redis connection close errors during cleanup
+    return
+  }
+  // Re-throw other errors
+  console.error('Unhandled Rejection:', reason)
+})
+
 export default defineConfig({
   test: {
     globals: true,

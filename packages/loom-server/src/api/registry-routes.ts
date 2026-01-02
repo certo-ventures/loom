@@ -38,6 +38,88 @@ export async function registerRegistryRoutes(
   server: FastifyInstance,
   dataStore: DataStore
 ) {
+  // Get actor schema (introspection)
+  server.get('/actors/:actorId/schema', {
+    schema: {
+      description: 'Get actor schema and WASM exports (introspection)',
+      params: {
+        type: 'object',
+        required: ['actorId'],
+        properties: {
+          actorId: { type: 'string' },
+        },
+      },
+      querystring: {
+        type: 'object',
+        properties: {
+          version: { type: 'string' },
+        },
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            actorId: { type: 'string' },
+            version: { type: 'string' },
+            inputSchema: { type: 'object' },
+            outputSchema: { type: 'object' },
+            wasmExports: { 
+              type: 'array',
+              items: { type: 'string' },
+            },
+            capabilities: {
+              type: 'object',
+              properties: {
+                streaming: { type: 'boolean' },
+                stateManagement: { type: 'boolean' },
+                childActors: { type: 'boolean' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { actorId } = request.params as any;
+    const { version } = request.query as any;
+
+    const actor = await dataStore.getActorMetadata(actorId, version);
+    
+    if (!actor) {
+      return reply.code(404).send({
+        error: 'Actor not found',
+        actorId,
+        version,
+      });
+    }
+
+    // Get WASM module to inspect exports
+    let wasmExports: string[] = [];
+    try {
+      const wasmBuffer = await dataStore.getWasmModule(actorId, version || actor.version);
+      if (wasmBuffer) {
+        const wasmModule = await WebAssembly.compile(wasmBuffer);
+        wasmExports = WebAssembly.Module.exports(wasmModule).map(e => e.name);
+      }
+    } catch (error) {
+      server.log.warn({ actorId, error }, 'Failed to inspect WASM exports');
+      // Continue without exports info
+    }
+
+    return {
+      actorId: actor.actorId,
+      version: actor.version,
+      inputSchema: actor.inputSchema,
+      outputSchema: actor.outputSchema,
+      wasmExports,
+      capabilities: {
+        streaming: wasmExports.includes('stream'),
+        stateManagement: wasmExports.includes('getState') || wasmExports.includes('setState'),
+        childActors: wasmExports.includes('spawnChild'),
+      },
+    };
+  });
+
   // Register actor with WASM module
   server.post('/actors', {
     schema: {

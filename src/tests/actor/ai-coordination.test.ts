@@ -10,10 +10,12 @@ import { GroupChatActor, type AgentParticipant } from '../../actor/group-chat-ac
 import type { ActorContext } from '../../actor/journal'
 import { RedisSharedMemory } from '../../shared-memory/redis-shared-memory'
 import type { LLMConfig } from '../../ai'
+import { loadAzureOpenAIConfig } from '../../config/environment'
 import Redis from 'ioredis'
 
 // Skip these tests if Azure OpenAI is not configured
-const skipAITests = !process.env.AZURE_OPENAI_API_KEY
+const azureOpenAIConfig = loadAzureOpenAIConfig()
+const skipAITests = !azureOpenAIConfig
 
 describe('AI-Powered Group Chat', () => {
   let redis: Redis
@@ -25,18 +27,21 @@ describe('AI-Powered Group Chat', () => {
     if (skipAITests) return
 
     redis = new Redis({
-      host: 'localhost',
-      port: 6379
+      host: process.env.REDIS_HOST || 'localhost',
+      port: parseInt(process.env.REDIS_PORT || '6379'),
+      db: 13 // Use separate DB for AI tests
     })
 
     sharedMemory = new RedisSharedMemory(redis)
 
+    if (!azureOpenAIConfig) throw new Error('Azure OpenAI config required')
+    
     coordinatorConfig = {
       provider: 'azure-openai',
-      apiKey: process.env.AZURE_OPENAI_API_KEY!,
-      endpoint: process.env.AZURE_OPENAI_ENDPOINT || 'https://your-resource.openai.azure.com',
-      deploymentName: process.env.AZURE_OPENAI_DEPLOYMENT || 'gpt-4',
-      model: 'gpt-4',
+      apiKey: azureOpenAIConfig.apiKey,
+      endpoint: azureOpenAIConfig.endpoint,
+      deploymentName: azureOpenAIConfig.deployment,
+      model: azureOpenAIConfig.model,
       temperature: 0.7,
       maxTokens: 200
     }

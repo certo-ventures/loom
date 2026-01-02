@@ -10,7 +10,7 @@ describe('QueueMetadataStore', () => {
     redis = new Redis({
       host: process.env.REDIS_HOST || 'localhost',
       port: parseInt(process.env.REDIS_PORT || '6379'),
-      db: 15 // Use test database
+      db: 14 // Use separate test database to avoid conflicts
     })
     await redis.flushdb() // Clean before each test
     store = new QueueMetadataStore(redis)

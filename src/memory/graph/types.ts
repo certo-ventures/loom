@@ -28,7 +28,9 @@ export interface Entity {
   actorId: string;
   graph_id: string;
   
+  embedding?: number[];
   summary_embedding?: number[];
+  metadata?: Record<string, any>;
 }
 
 export interface Fact {
@@ -48,7 +50,7 @@ export interface Fact {
   episodeIds: string[];
   
   // Quality tracking
-  source?: 'user_input' | 'auto_extracted' | 'imported' | 'system' | 'deliberation-system' | 'consensus-system' | 'policy-sync';
+  source?: 'user_input' | 'auto_extracted' | 'imported' | 'system' | 'deliberation-system' | 'consensus-system' | 'policy-sync' | 'version-control';
   confidence?: number;
   
   // Partitioning

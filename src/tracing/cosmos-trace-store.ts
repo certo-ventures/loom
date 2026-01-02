@@ -8,12 +8,14 @@
  */
 
 import { CosmosClient, Container, FeedOptions } from '@azure/cosmos'
+import { DefaultAzureCredential, type TokenCredential } from '@azure/identity'
 import type { ActorTrace, TraceQuery, TraceStats } from './types'
 import type { TraceStore } from './trace-store'
 
 export interface CosmosTraceStoreConfig {
   endpoint: string
-  key: string
+  key?: string // Optional: uses managed identity if not provided
+  credential?: TokenCredential // Optional: custom credential
   databaseId: string
   containerId: string
   batchSize?: number
@@ -34,10 +36,15 @@ export class CosmosTraceStore implements TraceStore {
   constructor(private config: CosmosTraceStoreConfig) {
     this.batchSize = config.batchSize || 50
     this.flushIntervalMs = config.flushIntervalMs || 5000
-    this.client = new CosmosClient({
-      endpoint: config.endpoint,
-      key: config.key,
-    })
+    
+    // Use managed identity if no key or credential provided
+    const credential = config.credential || (!config.key ? new DefaultAzureCredential() : undefined)
+    
+    this.client = new CosmosClient(
+      credential
+        ? { endpoint: config.endpoint, aadCredentials: credential }
+        : { endpoint: config.endpoint, key: config.key! }
+    )
   }
 
   /**

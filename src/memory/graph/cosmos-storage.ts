@@ -213,7 +213,7 @@ export class CosmosMemoryStorage implements MemoryStorage {
       validFrom: fact.validFrom.toISOString(),
       validUntil: fact.validUntil?.toISOString(),
       episodeIds: fact.episodeIds,
-      source: fact.source,
+      source: fact.source as any,
       confidence: fact.confidence,
       embedding: fact.embedding,
       embedding_ref: fact.embedding_ref,

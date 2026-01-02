@@ -27,6 +27,9 @@ export interface ActorRegistration {
   lastHeartbeat: string
   messageCount: number // For load balancing
   
+  /** Server endpoint for direct HTTP calls (optional) */
+  serverEndpoint?: string // e.g., 'http://worker-1.loom.svc:8080'
+  
   /** Structured actor metadata (replaces unstructured metadata) */
   metadata?: ActorMetadata
 }
@@ -284,6 +287,13 @@ export class DiscoveryService {
     workerId: string,
     metadata?: Record<string, any>
   ): Promise<void> {
+    // Extract serverEndpoint if provided in metadata
+    const serverEndpoint = metadata?.serverEndpoint as string | undefined
+    const cleanMetadata = metadata ? { ...metadata } : undefined
+    if (cleanMetadata && 'serverEndpoint' in cleanMetadata) {
+      delete cleanMetadata.serverEndpoint
+    }
+
     await this.registry.register({
       actorId,
       actorType,
@@ -291,7 +301,8 @@ export class DiscoveryService {
       status: 'idle',
       lastHeartbeat: new Date().toISOString(),
       messageCount: 0,
-      metadata: metadata as ActorMetadata | undefined,
+      serverEndpoint,
+      metadata: cleanMetadata as ActorMetadata | undefined,
     })
 
     // Publish lifecycle event

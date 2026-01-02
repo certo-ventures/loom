@@ -1,63 +1,39 @@
 /**
  * Tests for CosmosDB TraceStore with batching
+ * 
+ * NOTE: These tests require COSMOS_ENDPOINT environment variable.
+ * Uses DefaultAzureCredential for authentication (managed identity).
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { CosmosTraceStore } from '../../tracing/cosmos-trace-store'
 import type { ActorTrace } from '../../tracing/types'
+import { loadCosmosConfig } from '../../config/environment'
 
-describe('CosmosTraceStore', () => {
+const cosmosConfig = loadCosmosConfig()
+const COSMOS_ENABLED = !!cosmosConfig
+
+describe.skipIf(!COSMOS_ENABLED)('CosmosTraceStore', () => {
   let traceStore: CosmosTraceStore
-  let mockContainer: any
-  let mockBulk: any
-  let mockQuery: any
 
-  beforeEach(() => {
-    // Mock Cosmos SDK
-    mockBulk = vi.fn().mockResolvedValue(undefined)
-    mockQuery = vi.fn().mockReturnValue({
-      fetchAll: vi.fn().mockResolvedValue({ resources: [] })
-    })
-
-    mockContainer = {
-      items: {
-        bulk: mockBulk,
-        query: mockQuery,
-      }
-    }
-
-    const mockClient = {
-      databases: {
-        createIfNotExists: vi.fn().mockResolvedValue({
-          database: {
-            containers: {
-              createIfNotExists: vi.fn().mockResolvedValue({
-                container: mockContainer
-              })
-            }
-          }
-        })
-      }
-    }
-
-    // Mock CosmosClient constructor
-    vi.mock('@azure/cosmos', () => ({
-      CosmosClient: vi.fn(() => mockClient)
-    }))
-
+  beforeEach(async () => {
+    if (!cosmosConfig) throw new Error('Cosmos config required')
+    
     traceStore = new CosmosTraceStore({
-      endpoint: 'https://test.documents.azure.com',
-      key: 'test-key',
-      databaseId: 'traces-db',
-      containerId: 'traces',
-      batchSize: 3, // Small batch for testing
-      flushIntervalMs: 100, // Fast flush for testing
+      endpoint: cosmosConfig.endpoint,
+      // Uses DefaultAzureCredential (managed identity)
+      databaseId: 'test-traces',
+      containerId: 'traces-test',
+      batchSize: 3,
+      flushIntervalMs: 100,
     })
+    await traceStore.initialize()
   })
 
   afterEach(async () => {
-    await traceStore.close()
-    vi.clearAllMocks()
+    if (traceStore) {
+      await traceStore.close()
+    }
   })
 
   it('should initialize container with proper indexing policy', async () => {

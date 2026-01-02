@@ -27,13 +27,16 @@ import { CosmosStateStore } from '../../storage/cosmos-state-store'
 import { CosmosTraceStore } from '../../tracing/cosmos-trace-store'
 import { CosmosSecretsStore } from '../../secrets/cosmos-secrets'
 import { CosmosActorRegistry } from '../../discovery/cosmos-actor-registry'
+import { loadCosmosConfig, ConfigurationError } from '../../config/environment'
 
 // Types
 import type { ActorState } from '../../types'
 import type { JournalEntry } from '../../actor/journal'
 import type { ActorTrace } from '../../tracing/types'
 
-const SKIP_INTEGRATION_TESTS = process.env.SKIP_INTEGRATION !== 'false'
+// Run integration tests if Cosmos is configured
+const cosmosConfig = loadCosmosConfig()
+const SKIP_INTEGRATION_TESTS = !cosmosConfig
 
 describe.skipIf(SKIP_INTEGRATION_TESTS)('Production Adapters Integration', () => {
   
@@ -407,9 +410,11 @@ describe.skipIf(SKIP_INTEGRATION_TESTS)('Production Adapters Integration', () =>
     let traceStore: CosmosTraceStore
     let secretsStore: CosmosSecretsStore
     
-    const endpoint = process.env.COSMOS_ENDPOINT || 'https://localhost:8081'
+    if (!cosmosConfig) throw new ConfigurationError('Cosmos config required for integration tests')
+    
+    const endpoint = cosmosConfig.endpoint
     const key = process.env.COSMOS_KEY || 'C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=='
-    const databaseId = 'loom-test'
+    const databaseId = cosmosConfig.database
 
     beforeAll(async () => {
       // Create Cosmos client

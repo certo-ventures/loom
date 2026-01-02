@@ -10,6 +10,10 @@ export type JournalEntry =
   | { type: 'event_received'; eventType: string; data: unknown }
   | { type: 'suspended'; reason: string }
   | InvocationJournalEntry
+  | DecisionJournalEntry
+  | ContextGatheredEntry
+  | PrecedentReferencedEntry
+  | DecisionOutcomeEntry
 
 export interface InvocationJournalEntry {
   type: 'invocation'
@@ -17,6 +21,71 @@ export interface InvocationJournalEntry {
   timestamp: string
   payload: unknown
   metadata?: Record<string, unknown>
+}
+
+/**
+ * Decision journal entry - captures the "why" behind a decision
+ */
+export interface DecisionJournalEntry {
+  type: 'decision_made'
+  decisionId: string
+  timestamp: number
+  decisionType: 'exception' | 'approval' | 'escalation' | 'override' | 'policy_application' | 'synthesis'
+  rationale: string
+  reasoning?: string[]
+  inputs: Array<{
+    system: string
+    entity: string
+    query: string
+    result: any
+    relevance: string
+    retrievedAt: number
+  }>
+  outcome: any
+  policy?: { id: string; version: string; rule: string }
+  precedents?: string[]
+  isException: boolean
+  exceptionReason?: string
+  approvers?: Array<{ userId: string; role: string; approvedAt: number; comment?: string }>
+  context: Record<string, any>
+}
+
+/**
+ * Context gathered entry - tracks which systems were consulted
+ */
+export interface ContextGatheredEntry {
+  type: 'context_gathered'
+  decisionId: string
+  system: string
+  entity: string
+  query: string
+  result: any
+  relevance: string
+  retrievedAt: number
+}
+
+/**
+ * Precedent referenced entry - tracks when past decisions inform current ones
+ */
+export interface PrecedentReferencedEntry {
+  type: 'precedent_referenced'
+  decisionId: string
+  precedentId: string
+  relevance: string
+  retrievedAt: number
+}
+
+/**
+ * Decision outcome tracked entry - tracks actual results
+ */
+export interface DecisionOutcomeEntry {
+  type: 'decision_outcome_tracked'
+  decisionId: string
+  wasCorrect: boolean
+  actualResult?: any
+  feedback?: string
+  trackedAt: number
+  trackedBy: string
 }
 
 /**

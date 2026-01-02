@@ -26,8 +26,8 @@ export class ActorMemory {
   private entityCache: Map<string, string> = new Map(); // name -> id
 
   constructor(
-    private readonly actorId: string,
-    private readonly storage: MemoryStorage,
+    protected readonly actorId: string,
+    protected readonly storage: MemoryStorage,
     private readonly lamportClock: LamportClock,
     options?: ActorMemoryOptions
   ) {
@@ -105,7 +105,15 @@ export class ActorMemory {
   /**
    * Add an entity (person, place, thing)
    */
-  async addEntity(name: string, type: string, summary?: string): Promise<string> {
+  async addEntity(
+    name: string, 
+    type: string, 
+    summary?: string,
+    options?: {
+      embedding?: number[];
+      metadata?: Record<string, any>;
+    }
+  ): Promise<string> {
     const entity: Entity = {
       id: randomUUID(),
       name,
@@ -114,7 +122,9 @@ export class ActorMemory {
       sequence: ++this.entitySequence,
       created_at: new Date(),
       actorId: this.actorId,
-      graph_id: this.graph_id
+      graph_id: this.graph_id,
+      embedding: options?.embedding,
+      metadata: options?.metadata
     };
 
     await this.storage.addEntity(entity);
@@ -142,6 +152,7 @@ export class ActorMemory {
       confidence?: number;
       validFrom?: Date;
       lamport_ts?: number;  // For syncing facts from other actors
+      metadata?: Record<string, any>;
     }
   ): Promise<string> {
     // Tick Lamport clock (sync with received or local event)

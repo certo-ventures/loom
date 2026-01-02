@@ -14,7 +14,7 @@ import { AdapterFactory } from '../../storage/adapter-factory'
 import type { JournalStore } from '../../storage/journal-store'
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379'
-const SKIP_TESTS = !process.env.REDIS_URL  // Skip if REDIS_URL not explicitly set
+const SKIP_TESTS = false  // Redis is running locally, enable by default
 
 const describeIfRedis = SKIP_TESTS ? describe.skip : describe
 

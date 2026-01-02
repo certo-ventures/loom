@@ -1,4 +1,4 @@
-import type { Journal, JournalEntry, ActorContext, InvocationJournalEntry } from './journal'
+import type { Journal, JournalEntry, ActorContext, InvocationJournalEntry, DecisionJournalEntry, ContextGatheredEntry, PrecedentReferencedEntry, DecisionOutcomeEntry } from './journal'
 import type { StreamChunk } from '../streaming/types'
 import { SimpleStateImpl, type SimpleState } from '../state'
 import type { ActorInfrastructureConfig } from './actor-config'
@@ -11,8 +11,22 @@ import { createMemoryHelpers, type MemoryHelpers, type MemoryContext } from './m
 import type { MemoryAdapter } from '../memory'
 import { LamportClock } from '../timing/lamport-clock'
 import type { ActorMemory } from '../memory/graph/actor-memory'
+import { DecisionMemory } from '../memory/graph/decision-memory'
+import { PolicyMemory } from '../memory/graph/policy-memory'
+import { ObservabilityMetrics } from '../memory/graph/observability-metrics'
 import type { GraphStorage } from '../memory/graph/types'
 import type { Message } from '../types'
+import { ConfigurationError } from '../config/environment'
+import { 
+  type DecisionTrace, 
+  type DecisionInput, 
+  type DecisionTraceConfig, 
+  type LLMDecisionAnalysis,
+  type DecisionOutcome,
+  type DecisionReplayResult,
+  type DecisionExplanation,
+  DEFAULT_DECISION_TRACE_CONFIG 
+} from './decision-trace'
 
 /**
  * Base Actor class - all actors extend this
@@ -75,6 +89,21 @@ export abstract class Actor {
    */
   protected graphMemory?: ActorMemory
   
+  /**
+   * Optional decision memory (opt-in, provides decision precedent search and analysis)
+   */
+  protected decisionMemory?: DecisionMemory
+  
+  /**
+   * Optional policy memory (opt-in, tracks policy evolution and effectiveness)
+   */
+  protected policyMemory?: PolicyMemory
+  
+  /**
+   * Optional observability metrics (opt-in, provides decision quality scoring and analytics)
+   */
+  protected observabilityMetrics?: ObservabilityMetrics
+  
   private journal: Journal
   private isReplaying: boolean = false
   private activityCounter: number = 0
@@ -82,6 +111,11 @@ export abstract class Actor {
   private lastCompactionTime: number = 0
   private cachedCompactionThreshold: number | undefined
   private lastInvocation?: InvocationJournalEntry
+  
+  // Decision trace state
+  private decisionTraceConfig?: DecisionTraceConfig
+  private enrichmentBudgetUsed: number = 0
+  private enrichmentBudgetResetTime: number = Date.now()
 
   constructor(
     context: ActorContext, 
@@ -91,7 +125,10 @@ export abstract class Actor {
     memoryAdapter?: MemoryAdapter,
     journalStore?: JournalStore,
     lamportClock?: LamportClock,
-    graphMemory?: ActorMemory
+    graphMemory?: ActorMemory,
+    decisionMemory?: DecisionMemory,
+    policyMemory?: PolicyMemory,
+    observabilityMetrics?: ObservabilityMetrics
   ) {
     this.context = context
     this.state = initialState ?? this.getDefaultState()
@@ -102,6 +139,9 @@ export abstract class Actor {
     this.journalStore = journalStore
     this.lamportClock = lamportClock ?? new LamportClock()
     this.graphMemory = graphMemory
+    this.decisionMemory = decisionMemory
+    this.policyMemory = policyMemory
+    this.observabilityMetrics = observabilityMetrics
     
     // Initialize memory helpers (no-op if adapter not provided)
     const memoryContext: MemoryContext = {
@@ -192,10 +232,77 @@ export abstract class Actor {
   }
 
   /**
-   * Get configuration using hierarchical resolution
-   * Automatically uses actor's context (clientId, tenantId, environment)
+   * Get REQUIRED configuration using hierarchical resolution
+   * FAILS FAST: Throws ConfigurationError if config not found
+   * NEVER returns null - use tryGetConfig() for optional config
+   * 
+   * Automatically uses actor's context (clientId, tenantId, environment, actorId)
+   * 
+   * @throws ConfigurationError with detailed context if config not found
    */
-  protected async getConfig<T = any>(configKey: string): Promise<T | null> {
+  protected async getConfig<T = any>(configKey: string): Promise<T> {
+    const resolver = (this.context as any).configResolver
+    if (!resolver) {
+      throw new Error('ConfigResolver not provided in actor context. Add configResolver to runtime.')
+    }
+    
+    const value = await resolver.getWithContext(configKey, {
+      clientId: (this.context as any).clientId,
+      tenantId: (this.context as any).tenantId,
+      environment: (this.context as any).environment,
+      actorId: this.context.actorId,
+    })
+    
+    if (value === null || value === undefined) {
+      // Build searched paths for error message
+      const searchedPaths = this.buildConfigPaths(configKey)
+      
+      const contextInfo = {
+        actorId: this.context.actorId,
+        actorType: this.constructor.name,
+        clientId: (this.context as any).clientId,
+        tenantId: (this.context as any).tenantId,
+        environment: (this.context as any).environment,
+      }
+      
+      const contextStr = Object.entries(contextInfo)
+        .filter(([_, v]) => v)
+        .map(([k, v]) => `  ${k}: ${v}`)
+        .join('\n')
+      
+      throw new ConfigurationError(
+        `❌ CONFIGURATION ERROR: Cannot access required configuration\n\n` +
+        `Missing Required Configuration: ${configKey}\n\n` +
+        `Context:\n${contextStr}\n\n` +
+        `Searched paths:\n` +
+        searchedPaths.map(p => `  • ${p}`).join('\n') +
+        `\n\nFix:\n` +
+        `  Set required configuration at any level:\n` +
+        `  await configResolver.set('global/${configKey}', { /* config */ })\n\n` +
+        `  Or for this tenant:\n` +
+        `  await configResolver.set('${(this.context as any).tenantId || 'tenant'}/${configKey}', { /* config */ })`,
+        {
+          key: configKey,
+          context: contextInfo,
+          searchedPaths,
+          actorType: this.constructor.name
+        }
+      )
+    }
+    
+    return value as T
+  }
+
+  /**
+   * Get OPTIONAL configuration using hierarchical resolution
+   * Returns null if config not found (does not throw)
+   * 
+   * Use this for truly optional features where the actor can continue without the config.
+   * Caller MUST explicitly handle null case.
+   * 
+   * @returns Configuration value or null if not found
+   */
+  protected async tryGetConfig<T = any>(configKey: string): Promise<T | null> {
     const resolver = (this.context as any).configResolver
     if (!resolver) {
       throw new Error('ConfigResolver not provided in actor context. Add configResolver to runtime.')
@@ -209,6 +316,34 @@ export abstract class Actor {
     })
     
     return value as T | null
+  }
+
+  /**
+   * Build hierarchical config paths for error messages
+   * Shows all paths that were searched in order
+   */
+  private buildConfigPaths(configKey: string): string[] {
+    const paths: string[] = []
+    const ctx = this.context as any
+    
+    // Most specific to least specific
+    if (ctx.clientId && ctx.tenantId && ctx.environment && ctx.actorId) {
+      paths.push(`${ctx.clientId}/${ctx.tenantId}/${ctx.environment}/${ctx.actorId}/${configKey}`)
+    }
+    if (ctx.clientId && ctx.tenantId && ctx.environment) {
+      paths.push(`${ctx.clientId}/${ctx.tenantId}/${ctx.environment}/${configKey}`)
+    }
+    if (ctx.clientId && ctx.tenantId) {
+      paths.push(`${ctx.clientId}/${ctx.tenantId}/${configKey}`)
+    }
+    if (ctx.clientId) {
+      paths.push(`${ctx.clientId}/${configKey}`)
+    }
+    
+    // Always include global fallback
+    paths.push(`global/${configKey}`)
+    
+    return paths
   }
 
   /**
@@ -952,6 +1087,914 @@ export abstract class Actor {
       return [];
     }
     return this.graphMemory.getEntities();
+  }
+
+  // ============================================================================
+  // Decision Trace Methods - Hybrid LLM Approach
+  // ============================================================================
+
+  /**
+   * Record a decision with full context (WHY + WHAT)
+   * 
+   * This is the core primitive for capturing decision lineage.
+   * Always captures basic trace (fast). Optionally enriches with LLM (async).
+   * 
+   * @param params Decision parameters
+   * @param params.decisionType Type of decision
+   * @param params.rationale Why this decision was made (developer-provided)
+   * @param params.reasoning Step-by-step logic (optional)
+   * @param params.inputs Context gathered from systems
+   * @param params.outcome What was decided
+   * @param params.policy Policy applied (if any)
+   * @param params.precedents Prior decisions referenced
+   * @param params.isException Whether this is an exception to policy
+   * @param params.exceptionReason Why exception was granted
+   * @param params.approvers Who approved this decision
+   * @param params.context Additional context (tenantId, customerId, etc.)
+   * @param params.enrichWithLLM Override LLM enrichment ('always' | 'never' | undefined = use config)
+   * 
+   * @example
+   * await this.recordDecision({
+   *   decisionType: 'exception',
+   *   rationale: 'Healthcare customer with service issues deserves discount',
+   *   reasoning: [
+   *     'Customer ARR: $500k',
+   *     'Industry: healthcare (precedent exists)',
+   *     '3 open SEV-1 tickets',
+   *     'VP approval obtained'
+   *   ],
+   *   inputs: gatheredContext,
+   *   outcome: { approved: true, discount: 0.15 },
+   *   isException: true,
+   *   exceptionReason: 'Above standard 10% policy limit'
+   * })
+   */
+  protected async recordDecision(params: {
+    decisionType: DecisionTrace['decisionType']
+    rationale: string
+    reasoning?: string[]
+    inputs: DecisionInput[]
+    outcome: any
+    policy?: { id: string; version: string; rule: string }
+    precedents?: string[]
+    isException: boolean
+    exceptionReason?: string
+    approvers?: DecisionTrace['approvers']
+    context?: Record<string, any>
+    enrichWithLLM?: 'always' | 'never'
+  }): Promise<string> {
+    const decisionId = `decision_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const timestamp = this.lamportClock.tick()
+
+    // Always capture basic trace (fast, deterministic)
+    const basicTrace: DecisionTrace = {
+      decisionId,
+      timestamp,
+      actorId: this.context.actorId,
+      actorType: this.constructor.name,
+      decisionType: params.decisionType,
+      rationale: params.rationale,
+      reasoning: params.reasoning,
+      inputs: params.inputs,
+      outcome: params.outcome,
+      policy: params.policy,
+      precedents: params.precedents,
+      isException: params.isException,
+      exceptionReason: params.exceptionReason,
+      approvers: params.approvers,
+      context: {
+        tenantId: (this.context as any).tenantId,
+        environment: (this.context as any).environment,
+        ...params.context
+      }
+    }
+
+    // Store in journal (deterministic replay)
+    const journalEntry: DecisionJournalEntry = {
+      type: 'decision_made',
+      decisionId: basicTrace.decisionId,
+      timestamp: basicTrace.timestamp,
+      decisionType: basicTrace.decisionType,
+      rationale: basicTrace.rationale,
+      reasoning: basicTrace.reasoning,
+      inputs: basicTrace.inputs,
+      outcome: basicTrace.outcome,
+      policy: basicTrace.policy,
+      precedents: basicTrace.precedents,
+      isException: basicTrace.isException,
+      exceptionReason: basicTrace.exceptionReason,
+      approvers: basicTrace.approvers,
+      context: basicTrace.context
+    }
+
+    this.journal.entries.push(journalEntry)
+
+    // Emit trace event
+    this.context.recordEvent?.('decision_made', { decisionId, decisionType: params.decisionType })
+
+    // Store in DecisionMemory if configured
+    if (this.decisionMemory) {
+      this.decisionMemory.addDecisionTrace(basicTrace).catch(err => {
+        console.warn(`Failed to store decision ${decisionId} in DecisionMemory:`, err)
+        this.context.recordEvent?.('decision_storage_failed', { decisionId, error: err instanceof Error ? err.message : String(err) })
+      })
+    }
+
+    // Optionally enrich with LLM (async, don't block)
+    if (await this.shouldEnrichWithLLM(params)) {
+      this.enrichTraceWithLLM(basicTrace).catch(err => {
+        console.warn(`Failed to enrich decision ${decisionId} with LLM:`, err)
+        this.context.recordEvent?.('decision_enrichment_failed', { decisionId, error: err.message })
+      })
+    }
+
+    return decisionId
+  }
+
+  /**
+   * Gather context from an external system and track it
+   * 
+   * This method:
+   * 1. Performs the actual lookup/query
+   * 2. Records it in journal for replay
+   * 3. Returns the result
+   * 
+   * @param params System lookup parameters
+   * @returns The result from the system
+   * 
+   * @example
+   * const accountData = await this.gatherContext({
+   *   system: 'salesforce',
+   *   entity: 'account',
+   *   query: `SELECT ARR, Industry FROM Account WHERE Id = '${accountId}'`,
+   *   relevance: 'Customer ARR determines approval threshold',
+   *   fetcher: async () => await salesforceClient.query(...)
+   * })
+   */
+  protected async gatherContext<T = any>(params: {
+    system: string
+    entity: string
+    query: string
+    relevance: string
+    fetcher: () => Promise<T>
+    decisionId?: string
+  }): Promise<T> {
+    const startTime = Date.now()
+    const result = await params.fetcher()
+    const retrievedAt = this.lamportClock.tick()
+
+    // Record in journal
+    const entry: ContextGatheredEntry = {
+      type: 'context_gathered',
+      decisionId: params.decisionId || 'pending',
+      system: params.system,
+      entity: params.entity,
+      query: params.query,
+      result,
+      relevance: params.relevance,
+      retrievedAt
+    }
+
+    this.journal.entries.push(entry)
+
+    // Emit metrics
+    this.context.recordMetric?.('context_gather_duration_ms', Date.now() - startTime, {
+      system: params.system,
+      entity: params.entity
+    })
+
+    return result
+  }
+
+  /**
+   * Find similar past decisions (precedent search)
+   * 
+   * Uses DecisionMemory (if configured) to search for similar decisions
+   * using semantic similarity, filters, or both.
+   * 
+   * In Phase 2, this queries DecisionMemory (extends GraphMemory)
+   * to find similar past decisions using vector search or filters.
+   * 
+   * @param params Search parameters
+   * @returns Array of precedent decision traces
+   */
+  protected async findPrecedents(params: {
+    decisionType?: DecisionTrace['decisionType']
+    contextSimilarity?: Record<string, any>
+    timeRange?: { start: number; end: number }
+    limit?: number
+    queryText?: string
+    minSimilarity?: number
+  }): Promise<DecisionTrace[]> {
+    // If DecisionMemory not configured, return empty array
+    if (!this.decisionMemory) {
+      this.context.recordEvent?.('precedent_search', { 
+        decisionType: params.decisionType,
+        resultCount: 0,
+        reason: 'decision_memory_not_configured'
+      })
+      return []
+    }
+
+    try {
+      // Build search query
+      const searchQuery: any = {
+        decisionType: params.decisionType,
+        contextFilters: params.contextSimilarity,
+        startTime: params.timeRange?.start,
+        endTime: params.timeRange?.end,
+        limit: params.limit || 10,
+        minSimilarity: params.minSimilarity || 0.7
+      }
+
+      // Add text query if provided
+      if (params.queryText) {
+        searchQuery.queryText = params.queryText
+      }
+
+      // Search for precedents
+      const precedents = await this.decisionMemory.searchDecisions(searchQuery)
+
+      // Record event
+      this.context.recordEvent?.('precedent_search', { 
+        decisionType: params.decisionType,
+        resultCount: precedents.length,
+        hasTextQuery: !!params.queryText
+      })
+
+      return precedents
+    } catch (error) {
+      console.warn('Precedent search failed:', error)
+      this.context.recordEvent?.('precedent_search_failed', { 
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return []
+    }
+  }
+
+  /**
+   * Request approval and capture approval chain
+   * 
+   * @param params Approval parameters
+   * @returns Approval response with approver details
+   */
+  protected async requestApproval(params: {
+    approvalType: string
+    reason: string
+    data: any
+    requiredRole?: string
+  }): Promise<{
+    approved: boolean
+    approver?: { userId: string; role: string; comment?: string }
+    approvedAt?: number
+  }> {
+    // TODO: Implement approval workflow integration
+    // For now, this is a placeholder that records the approval request
+    
+    this.context.recordEvent?.('approval_requested', {
+      approvalType: params.approvalType,
+      reason: params.reason,
+      requiredRole: params.requiredRole
+    })
+
+    // Placeholder: auto-approve for now
+    return {
+      approved: true,
+      approver: {
+        userId: 'system',
+        role: 'auto',
+        comment: 'Auto-approved (approval workflow not yet implemented)'
+      },
+      approvedAt: Date.now()
+    }
+  }
+
+  /**
+   * Get active policy for decision-making
+   * 
+   * Checks if an A/B test is running and returns appropriate policy version.
+   * Falls back to active policy if no test or PolicyMemory not configured.
+   * 
+   * @param policyId Policy ID to retrieve
+   * @returns Policy version to use, or null if not found
+   */
+  protected async getActivePolicy(policyId: string): Promise<{
+    id: string;
+    version: string;
+    rule: string;
+    isTestVariant?: boolean;
+    testId?: string;
+  } | null> {
+    if (!this.policyMemory) {
+      return null;
+    }
+
+    try {
+      // Check for active A/B tests
+      // For simplicity, we'll just get the active policy
+      // In production, you'd check A/B test assignments here
+      const policy = await this.policyMemory.getPolicy(policyId);
+      
+      if (!policy) {
+        return null;
+      }
+
+      return {
+        id: policy.id,
+        version: policy.version,
+        rule: policy.rule
+      };
+    } catch (error) {
+      console.warn('Failed to get active policy:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Track policy effectiveness after decision outcome is known
+   * 
+   * Called automatically when trackDecisionOutcome() is used.
+   * Updates policy metrics in PolicyMemory.
+   * 
+   * @param decisionId The decision ID
+   * @param wasCorrect Whether the decision outcome was correct
+   */
+  private async updatePolicyEffectiveness(
+    decisionId: string,
+    wasCorrect: boolean
+  ): Promise<void> {
+    if (!this.policyMemory || !this.decisionMemory) {
+      return;
+    }
+
+    try {
+      // Get the decision to find its policy
+      const decision = await this.decisionMemory.getDecision(decisionId);
+      if (!decision || !decision.policy) {
+        return;
+      }
+
+      // Policy effectiveness is calculated on-demand via calculatePolicyEffectiveness()
+      // This method just records that the outcome was tracked
+      this.context.recordEvent?.('policy_effectiveness_updated', {
+        policyId: decision.policy.id,
+        version: decision.policy.version,
+        wasCorrect
+      });
+    } catch (error) {
+      console.warn('Failed to update policy effectiveness:', error);
+    }
+  }
+
+  /**
+   * Request policy suggestions based on exception patterns
+   * 
+   * Analyzes recent exceptions and suggests policy changes.
+   * Useful for continuous policy improvement.
+   * 
+   * @param policyId Policy to analyze
+   * @param minFrequency Minimum exception frequency to trigger suggestion
+   * @returns Array of policy suggestions
+   */
+  protected async requestPolicySuggestions(
+    policyId: string,
+    minFrequency: number = 5
+  ): Promise<Array<{
+    suggestedRule: string;
+    changeReason: string;
+    expectedImpact: {
+      exceptionReduction: number;
+      affectedDecisions: number;
+      confidence: number;
+    };
+  }>> {
+    if (!this.policyMemory) {
+      this.context.recordEvent?.('policy_suggestions_failed', {
+        reason: 'policy_memory_not_configured'
+      });
+      return [];
+    }
+
+    try {
+      const suggestions = await this.policyMemory.generatePolicySuggestions(
+        policyId,
+        minFrequency
+      );
+
+      this.context.recordEvent?.('policy_suggestions_generated', {
+        policyId,
+        count: suggestions.length
+      });
+
+      return suggestions.map(s => ({
+        suggestedRule: s.suggestedRule,
+        changeReason: s.changeReason,
+        expectedImpact: s.expectedImpact
+      }));
+    } catch (error) {
+      console.warn('Failed to generate policy suggestions:', error);
+      this.context.recordEvent?.('policy_suggestions_failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Determine if decision should be enriched with LLM analysis
+   * 
+   * Decision logic:
+   * 1. Check explicit override (enrichWithLLM param)
+   * 2. Check config mode ('never' | 'hybrid' | 'always')
+   * 3. Check budget limits
+   * 4. Check auto-enrich triggers
+   */
+  private async shouldEnrichWithLLM(params: {
+    decisionType: DecisionTrace['decisionType']
+    isException: boolean
+    approvers?: any[]
+    enrichWithLLM?: 'always' | 'never'
+  }): Promise<boolean> {
+    // Explicit override
+    if (params.enrichWithLLM === 'never') return false
+    if (params.enrichWithLLM === 'always') return true
+
+    // Get config (use default if not configured)
+    const config = await this.getDecisionTraceConfig()
+
+    // Check mode
+    if (config.llmEnrichment.mode === 'never') return false
+    if (config.llmEnrichment.mode === 'always') return true
+
+    // Check budget limits (hybrid mode)
+    if (!this.checkEnrichmentBudget(config)) return false
+
+    // Check auto-enrich triggers
+    const shouldEnrich = config.llmEnrichment.autoEnrichOn.includes(params.decisionType)
+    
+    return shouldEnrich
+  }
+
+  /**
+   * Enrich decision trace with LLM analysis (async)
+   */
+  private async enrichTraceWithLLM(trace: DecisionTrace): Promise<void> {
+    const config = await this.getDecisionTraceConfig()
+    const startTime = Date.now()
+
+    try {
+      // Get LLM config
+      const llmConfig = await this.tryGetConfig('critic-llm')
+      if (!llmConfig) {
+        console.warn('LLM enrichment requested but critic-llm not configured')
+        return
+      }
+
+      // Build prompt for LLM critic
+      const prompt = this.buildCriticPrompt(trace)
+
+      // TODO: Call LLM API (requires LLM client integration)
+      // For now, this is a placeholder that shows the structure
+      
+      const llmResponse: LLMDecisionAnalysis = {
+        deeperRationale: `[LLM Analysis Placeholder] ${trace.rationale}`,
+        criticalFactors: trace.inputs.map(input => ({
+          factor: input.relevance,
+          impact: 'medium' as const,
+          reasoning: `System ${input.system} provided ${input.entity} data`
+        })),
+        riskAssessment: {
+          level: trace.isException ? 'medium' : 'low',
+          factors: trace.isException ? ['Exception to policy'] : [],
+          mitigation: 'Standard approval process followed'
+        },
+        alternativeAnalysis: [],
+        generatedAt: Date.now(),
+        model: config.llmEnrichment.critic.model,
+        confidence: 0.85
+      }
+
+      // Update trace with LLM analysis
+      trace.llmAnalysis = llmResponse
+
+      // Increment budget counter
+      this.enrichmentBudgetUsed++
+
+      // Emit metrics
+      const duration = Date.now() - startTime
+      this.context.recordMetric?.('decision_enrichment_duration_ms', duration, {
+        model: config.llmEnrichment.critic.model
+      })
+      this.context.recordEvent?.('decision_enriched', {
+        decisionId: trace.decisionId,
+        duration,
+        confidence: llmResponse.confidence
+      })
+
+    } catch (error: any) {
+      const duration = Date.now() - startTime
+      this.context.recordMetric?.('decision_enrichment_duration_ms', duration, {
+        error: 'true'
+      })
+      throw error
+    }
+  }
+
+  /**
+   * Build LLM critic prompt from decision trace
+   */
+  private buildCriticPrompt(trace: DecisionTrace): string {
+    return `You are analyzing a decision made by an AI agent. Explain WHY this decision was made.
+
+DECISION: ${trace.decisionType} - ${trace.rationale}
+
+INPUTS:
+${trace.inputs.map(input => 
+  `- ${input.system}.${input.entity}: ${input.relevance}\n  Query: ${input.query}\n  Result: ${JSON.stringify(input.result)}`
+).join('\n')}
+
+OUTCOME: ${JSON.stringify(trace.outcome)}
+
+${trace.policy ? `POLICY: ${trace.policy.rule}` : ''}
+${trace.isException ? `EXCEPTION REASON: ${trace.exceptionReason}` : ''}
+${trace.precedents?.length ? `PRECEDENTS: ${trace.precedents.length} similar decisions found` : ''}
+
+TASK: Generate a clear, structured explanation:
+1. What factors led to this decision?
+2. How did inputs influence the outcome?
+3. ${trace.isException ? 'Why was the exception justified?' : 'How does this align with policy?'}
+4. What alternatives were considered?
+5. What risks should be monitored?
+
+Provide your analysis in JSON format:
+{
+  "deeperRationale": "...",
+  "criticalFactors": [{ "factor": "...", "impact": "high|medium|low", "reasoning": "..." }],
+  "riskAssessment": { "level": "low|medium|high", "factors": [], "mitigation": "..." },
+  "alternativeAnalysis": [{ "alternative": "...", "pros": [], "cons": [], "whyRejected": "..." }]
+}
+`
+  }
+
+  /**
+   * Get decision trace configuration (with defaults)
+   */
+  private async getDecisionTraceConfig(): Promise<DecisionTraceConfig> {
+    if (this.decisionTraceConfig) return this.decisionTraceConfig
+
+    // Try to load from config
+    const configuredValue = await this.tryGetConfig<DecisionTraceConfig>('decisionTraces')
+    
+    // Merge with defaults
+    this.decisionTraceConfig = configuredValue 
+      ? { ...DEFAULT_DECISION_TRACE_CONFIG, ...configuredValue }
+      : DEFAULT_DECISION_TRACE_CONFIG
+
+    return this.decisionTraceConfig
+  }
+
+  /**
+   * Check if enrichment budget is available
+   */
+  private checkEnrichmentBudget(config: DecisionTraceConfig): boolean {
+    // Reset daily budget if needed
+    const now = Date.now()
+    const dayInMs = 24 * 60 * 60 * 1000
+    if (now - this.enrichmentBudgetResetTime > dayInMs) {
+      this.enrichmentBudgetUsed = 0
+      this.enrichmentBudgetResetTime = now
+    }
+
+    // Check if under budget
+    return this.enrichmentBudgetUsed < config.budgets.maxEnrichmentsPerDay
+  }
+
+  // ============================================================================
+  // Decision Replay & Audit Methods
+  // ============================================================================
+
+  /**
+   * Get complete decision explanation (audit trail)
+   * Shows WHY a decision was made with full context
+   * 
+   * @param decisionId The decision to explain
+   * @returns Complete audit trail with all context
+   */
+  protected async getDecisionExplanation(decisionId: string): Promise<DecisionExplanation> {
+    // Find decision in journal
+    const decisionEntry = this.journal.entries.find(
+      (e): e is DecisionJournalEntry => 
+        e.type === 'decision_made' && e.decisionId === decisionId
+    )
+
+    if (!decisionEntry) {
+      throw new Error(`Decision ${decisionId} not found in journal`)
+    }
+
+    // Reconstruct decision trace
+    const decision: DecisionTrace = {
+      decisionId: decisionEntry.decisionId,
+      timestamp: decisionEntry.timestamp,
+      actorId: this.context.actorId,
+      actorType: this.constructor.name,
+      decisionType: decisionEntry.decisionType,
+      rationale: decisionEntry.rationale,
+      reasoning: decisionEntry.reasoning,
+      inputs: decisionEntry.inputs,
+      outcome: decisionEntry.outcome,
+      policy: decisionEntry.policy,
+      precedents: decisionEntry.precedents,
+      isException: decisionEntry.isException,
+      exceptionReason: decisionEntry.exceptionReason,
+      approvers: decisionEntry.approvers,
+      context: decisionEntry.context
+    }
+
+    // Get context gathering entries
+    const contextEntries = this.journal.entries.filter(
+      (e): e is ContextGatheredEntry =>
+        e.type === 'context_gathered' && e.decisionId === decisionId
+    )
+
+    // Get precedent entries (stub for Phase 2 - will query DecisionMemory)
+    const precedentEntries = this.journal.entries.filter(
+      (e): e is PrecedentReferencedEntry =>
+        e.type === 'precedent_referenced' && e.decisionId === decisionId
+    )
+
+    const precedents = precedentEntries.map(p => ({
+      decisionId: p.precedentId,
+      rationale: 'Precedent details would come from DecisionMemory in Phase 2',
+      relevance: p.relevance,
+      similarity: 0.85
+    }))
+
+    // Build timeline
+    const timeline = [
+      ...contextEntries.map(e => ({
+        timestamp: e.retrievedAt,
+        event: 'context_gathered',
+        description: `Retrieved ${e.entity} from ${e.system}`,
+        metadata: { system: e.system, relevance: e.relevance }
+      })),
+      ...precedentEntries.map(e => ({
+        timestamp: e.retrievedAt,
+        event: 'precedent_referenced',
+        description: `Referenced precedent ${e.precedentId}`,
+        metadata: { precedentId: e.precedentId }
+      })),
+      {
+        timestamp: decisionEntry.timestamp,
+        event: 'decision_made',
+        description: `Decision recorded: ${decisionEntry.decisionType}`,
+        metadata: { isException: decisionEntry.isException }
+      }
+    ].sort((a, b) => a.timestamp - b.timestamp)
+
+    // Check for outcome tracking
+    const outcomeEntry = this.journal.entries.find(
+      (e): e is DecisionOutcomeEntry =>
+        e.type === 'decision_outcome_tracked' && e.decisionId === decisionId
+    )
+
+    const outcome = outcomeEntry ? {
+      wasCorrect: outcomeEntry.wasCorrect,
+      actualResult: outcomeEntry.actualResult,
+      feedback: outcomeEntry.feedback,
+      trackedAt: outcomeEntry.trackedAt,
+      trackedBy: outcomeEntry.trackedBy
+    } : undefined
+
+    return {
+      decision,
+      inputDetails: decisionEntry.inputs,
+      precedents,
+      policyDetails: decisionEntry.policy
+        ? {
+            id: decisionEntry.policy.id,
+            version: decisionEntry.policy.version,
+            rule: decisionEntry.policy.rule,
+            source: 'ConfigResolver'
+          }
+        : {
+            id: 'none',
+            version: 'N/A',
+            rule: 'No policy applied',
+            source: 'N/A'
+          },
+      approvalChain: (decisionEntry.approvers || []).map((a, i) => ({
+        step: i + 1,
+        userId: a.userId,
+        role: a.role,
+        approvedAt: a.approvedAt,
+        comment: a.comment,
+        decision: 'approved' as const
+      })),
+      timeline,
+      outcome
+    }
+  }
+
+  /**
+   * Replay a decision with current policy (what-if analysis)
+   * Shows how the decision would differ if made today
+   * 
+   * @param decisionId The decision to replay
+   * @returns Comparison of original vs current
+   */
+  protected async replayDecision(decisionId: string): Promise<DecisionReplayResult> {
+    // Get original decision
+    const decisionEntry = this.journal.entries.find(
+      (e): e is DecisionJournalEntry => 
+        e.type === 'decision_made' && e.decisionId === decisionId
+    )
+
+    if (!decisionEntry) {
+      throw new Error(`Decision ${decisionId} not found in journal`)
+    }
+
+    const originalDecision: DecisionTrace = {
+      decisionId: decisionEntry.decisionId,
+      timestamp: decisionEntry.timestamp,
+      actorId: this.context.actorId,
+      actorType: this.constructor.name,
+      decisionType: decisionEntry.decisionType,
+      rationale: decisionEntry.rationale,
+      reasoning: decisionEntry.reasoning,
+      inputs: decisionEntry.inputs,
+      outcome: decisionEntry.outcome,
+      policy: decisionEntry.policy,
+      precedents: decisionEntry.precedents,
+      isException: decisionEntry.isException,
+      exceptionReason: decisionEntry.exceptionReason,
+      approvers: decisionEntry.approvers,
+      context: decisionEntry.context
+    }
+
+    // Get current policy (might have changed)
+    let currentPolicy: { id: string; version: string; rule: string } | undefined
+    let policyChanged = false
+
+    if (decisionEntry.policy) {
+      try {
+        const currentPolicyValue = await this.tryGetConfig(decisionEntry.policy.id)
+        if (currentPolicyValue) {
+          currentPolicy = {
+            id: decisionEntry.policy.id,
+            version: 'current',
+            rule: JSON.stringify(currentPolicyValue)
+          }
+          policyChanged = decisionEntry.policy.rule !== currentPolicy.rule
+        }
+      } catch {
+        // Policy no longer exists or can't be retrieved
+        policyChanged = true
+      }
+    }
+
+    // Simulate decision with current policy
+    // This is a simplified simulation - full implementation would re-run decision logic
+    const simulatedOutcome = policyChanged
+      ? { simulated: true, note: 'Policy changed - outcome may differ' }
+      : decisionEntry.outcome
+
+    const wouldDecideDifferently = policyChanged
+
+    // Build differences
+    const differences: Array<{ aspect: string; original: any; current: any; reason: string }> = []
+
+    if (policyChanged) {
+      differences.push({
+        aspect: 'policy',
+        original: decisionEntry.policy?.rule,
+        current: currentPolicy?.rule,
+        reason: 'Policy has been updated since this decision was made'
+      })
+    }
+
+    // Check for new precedents (Phase 2 will implement this)
+    // For now, just note that precedent search would be different
+    if (decisionEntry.precedents && decisionEntry.precedents.length > 0) {
+      differences.push({
+        aspect: 'precedents',
+        original: `${decisionEntry.precedents.length} precedents`,
+        current: 'Precedent count may differ (requires DecisionMemory)',
+        reason: 'More decisions may have been recorded since then'
+      })
+    }
+
+    this.context.recordEvent?.('decision_replayed', {
+      decisionId,
+      policyChanged,
+      wouldDecideDifferently
+    })
+
+    return {
+      originalDecision,
+      replayedAt: Date.now(),
+      policyChanged,
+      currentPolicy,
+      policyDiff: policyChanged
+        ? `Original: ${decisionEntry.policy?.version || 'N/A'} → Current: ${currentPolicy?.version || 'N/A'}`
+        : undefined,
+      simulatedOutcome,
+      wouldDecideDifferently,
+      differences
+    }
+  }
+
+  /**
+   * Track outcome of a decision (for measuring accuracy)
+   * Call this after you know if the decision was correct
+   * 
+   * @param decisionId The decision to track
+   * @param outcome The actual outcome
+   */
+  protected async trackDecisionOutcome(
+    decisionId: string,
+    outcome: {
+      wasCorrect: boolean
+      actualResult?: any
+      feedback?: string
+    }
+  ): Promise<void> {
+    const entry: DecisionOutcomeEntry = {
+      type: 'decision_outcome_tracked',
+      decisionId,
+      wasCorrect: outcome.wasCorrect,
+      actualResult: outcome.actualResult,
+      feedback: outcome.feedback,
+      trackedAt: Date.now(),
+      trackedBy: (this.context as any).userId || 'system'
+    }
+
+    this.journal.entries.push(entry)
+
+    this.context.recordEvent?.('decision_outcome_tracked', {
+      decisionId,
+      wasCorrect: outcome.wasCorrect
+    })
+
+    this.context.recordMetric?.('decision_accuracy', outcome.wasCorrect ? 1 : 0, {
+      decisionId,
+      actorType: this.constructor.name
+    })
+
+    // Update policy effectiveness (Phase 3)
+    await this.updatePolicyEffectiveness(decisionId, outcome.wasCorrect)
+  }
+
+  /**
+   * Get all decisions from journal (for audit)
+   * 
+   * @param filter Optional filter criteria
+   * @returns Array of decision traces
+   */
+  protected getDecisionsFromJournal(filter?: {
+    decisionType?: DecisionTrace['decisionType']
+    isException?: boolean
+    startTime?: number
+    endTime?: number
+  }): DecisionTrace[] {
+    let decisions = this.journal.entries
+      .filter((e): e is DecisionJournalEntry => e.type === 'decision_made')
+      .map(e => ({
+        decisionId: e.decisionId,
+        timestamp: e.timestamp,
+        actorId: this.context.actorId,
+        actorType: this.constructor.name,
+        decisionType: e.decisionType,
+        rationale: e.rationale,
+        reasoning: e.reasoning,
+        inputs: e.inputs,
+        outcome: e.outcome,
+        policy: e.policy,
+        precedents: e.precedents,
+        isException: e.isException,
+        exceptionReason: e.exceptionReason,
+        approvers: e.approvers,
+        context: e.context
+      }))
+
+    if (!filter) return decisions
+
+    if (filter.decisionType) {
+      decisions = decisions.filter(d => d.decisionType === filter.decisionType)
+    }
+
+    if (filter.isException !== undefined) {
+      decisions = decisions.filter(d => d.isException === filter.isException)
+    }
+
+    if (filter.startTime) {
+      decisions = decisions.filter(d => d.timestamp >= filter.startTime!)
+    }
+
+    if (filter.endTime) {
+      decisions = decisions.filter(d => d.timestamp <= filter.endTime!)
+    }
+
+    return decisions
   }
 }
 

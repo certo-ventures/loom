@@ -1,0 +1,79 @@
+# Decision Traces Configuration
+
+# Enable decision trace capture system
+decisionTraces:
+  enabled: true
+  
+  # LLM enrichment configuration (Hybrid Approach)
+  llmEnrichment:
+    # Mode: 'never' | 'hybrid' | 'always'
+    # - never: Basic traces only (developer-written rationale)
+    # - hybrid: Basic + optional LLM enrichment for high-value decisions (RECOMMENDED)
+    # - always: All decisions enriched with LLM (expensive)
+    mode: hybrid
+    
+    # Auto-enrich these decision types
+    # - exception: Policy exceptions (high value - understand why)
+    # - approval: Approval chains (capture decision context)
+    # - synthesis: Multi-system decisions (complex reasoning)
+    # - escalation: Escalated decisions (important outcomes)
+    # - override: Manual overrides (audit trail critical)
+    autoEnrichOn:
+      - exception
+      - approval
+      - synthesis
+    
+    # LLM critic configuration
+    critic:
+      # Model to use for decision analysis
+      model: gpt-4o-mini
+      
+      # Temperature (0-1): Lower = more focused, Higher = more creative
+      temperature: 0.3
+      
+      # Max tokens for analysis
+      maxTokens: 500
+    
+    # Performance
+    async: true  # Don't block decision recording (recommended)
+    timeout: 5000  # Max time for enrichment (ms)
+  
+  # Cost controls
+  budgets:
+    # Maximum enrichments per day (prevents runaway costs)
+    maxEnrichmentsPerDay: 10000
+    
+    # Maximum cost per day in USD (approximate)
+    maxCostPerDay: 50
+
+# LLM Critic Configuration
+# Required if llmEnrichment.mode is 'hybrid' or 'always'
+critic-llm:
+  provider: openai  # or azure-openai
+  apiKey: ${OPENAI_API_KEY}  # From environment variable
+  baseURL: https://api.openai.com/v1
+  model: gpt-4o-mini
+  
+  # Optional: Azure OpenAI specific config
+  # deployment: your-deployment-name
+  # apiVersion: 2024-02-15-preview
+
+# Example Policy Configuration
+discount-policy:
+  maxDiscount: 0.10  # 10% standard limit
+  rules: |
+    Standard discount policy:
+    - Up to 10% discount: Sales rep approval
+    - 11-15% discount: VP Sales approval
+    - 16-20% discount: C-level approval
+    - Above 20%: Board approval
+  
+  exceptions:
+    healthcare:
+      reason: "Healthcare vertical is strategic"
+      maxBonus: 0.05  # +5% above standard
+    
+    highValue:
+      threshold: 500000  # $500k ARR
+      reason: "Enterprise customers get preferential treatment"
+      maxBonus: 0.05

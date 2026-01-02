@@ -42,10 +42,38 @@ describe('Pipeline DAG execution', () => {
   })
 
   afterEach(async () => {
-    await worker?.close()
-    await messageQueue?.close()
-    await redisContext?.queueRedis.quit()
-    await redisContext?.stateRedis.quit()
+    try {
+      if (worker) {
+        await worker.close()
+      }
+    } catch (e) {
+      // Ignore close errors
+    }
+    
+    try {
+      if (messageQueue) {
+        await messageQueue.close()
+      }
+    } catch (e) {
+      // Ignore close errors
+    }
+    
+    if (redisContext) {
+      // Wait a bit for connections to fully close
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      try {
+        await redisContext.queueRedis.quit()
+      } catch (e) {
+        // Ignore quit errors - connection may already be closed
+      }
+      
+      try {
+        await redisContext.stateRedis.quit()
+      } catch (e) {
+        // Ignore quit errors - connection may already be closed
+      }
+    }
   })
 
   it('should execute stages in parallel when dependencies are met', async () => {
