@@ -48,7 +48,7 @@ export interface Fact {
   episodeIds: string[];
   
   // Quality tracking
-  source: 'user_input' | 'auto_extracted' | 'imported';
+  source?: 'user_input' | 'auto_extracted' | 'imported' | 'system' | 'deliberation-system' | 'consensus-system' | 'policy-sync';
   confidence?: number;
   
   // Partitioning

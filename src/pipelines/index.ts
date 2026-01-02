@@ -8,6 +8,7 @@
 export * from './pipeline-dsl'
 export * from './pipeline-orchestrator'
 export * from './pipeline-actor-worker'
+export { RedisPipelineStateStore } from './pipeline-state-store'
 
 // Pluggable executors
 export * from './stage-executor'
