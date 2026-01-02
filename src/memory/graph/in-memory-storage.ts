@@ -112,11 +112,33 @@ export class InMemoryGraphStorage implements MemoryStorage {
   }
 
   async searchFacts(query: MemoryQuery): Promise<Fact[]> {
-    let results = Array.from(this.facts.values())
-      .filter(f => f.actorId === query.actorId);
+    let results = Array.from(this.facts.values());
+    
+    // Filter by actorId if provided
+    if (query.actorId) {
+      results = results.filter(f => f.actorId === query.actorId);
+    }
     
     if (query.graph_id) {
       results = results.filter(f => f.graph_id === query.graph_id);
+    }
+    
+    // Support both 'subject' and 'source_entity_ids' for backward compatibility
+    const subjectField = (query as any).subject;
+    if (subjectField) {
+      results = results.filter(f => f.sourceEntityId === subjectField);
+    }
+    
+    // Support both 'object' and 'target_entity_ids' for backward compatibility
+    const objectField = (query as any).object;
+    if (objectField) {
+      results = results.filter(f => f.targetEntityId === objectField);
+    }
+    
+    // Support singular 'relation' in addition to 'relations' array
+    const relationField = (query as any).relation;
+    if (relationField) {
+      results = results.filter(f => f.relation === relationField);
     }
     
     // Filter by source entity IDs
