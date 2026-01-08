@@ -9,6 +9,9 @@
     "type": "git",
     "url": "https://github.com/certo-ventures/loom.git"
   },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com/"
+  },
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
