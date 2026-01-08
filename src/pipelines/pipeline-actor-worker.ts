@@ -23,7 +23,7 @@ export interface ActorImplementation {
  */
 export class PipelineActorWorker {
   private messageQueue: BullMQMessageQueue
-  private actors = new Map<string, ActorImplementation | (new () => ActorImplementation)>()
+  private actors = new Map<string, ActorImplementation | (new () => ActorImplementation) | (() => ActorImplementation)>()
   private stateStore?: PipelineStateStore
   private readonly metricsCollector?: MetricsCollector
 
@@ -38,10 +38,10 @@ export class PipelineActorWorker {
   }
 
   /**
-   * Register an actor implementation (supports both classes and instances)
+   * Register an actor implementation (supports classes, instances, and factory functions)
    */
-  registerActor(actorType: string, actorClassOrInstance: ActorImplementation | (new () => ActorImplementation)): void {
-    this.actors.set(actorType, actorClassOrInstance)
+  registerActor(actorType: string, actorClassOrInstanceOrFactory: ActorImplementation | (new () => ActorImplementation) | (() => ActorImplementation)): void {
+    this.actors.set(actorType, actorClassOrInstanceOrFactory)
     console.log(`📦 Registered actor: ${actorType}`)
   }
 
@@ -49,8 +49,8 @@ export class PipelineActorWorker {
    * Start worker for an actor type
    */
   startWorker(actorType: string, concurrency: number = 1): void {
-    const actorClassOrInstance = this.actors.get(actorType)
-    if (!actorClassOrInstance) {
+    const actorClassOrInstanceOrFactory = this.actors.get(actorType)
+    if (!actorClassOrInstanceOrFactory) {
       throw new Error(`Actor ${actorType} not registered`)
     }
 
@@ -126,12 +126,26 @@ export class PipelineActorWorker {
     let recordedActivation = false
 
     try {
-      const actorClassOrInstance = this.actors.get(actorType)!
+      const actorClassOrInstanceOrFactory = this.actors.get(actorType)!
       
-      // Support both classes and instances
-      const actor = typeof actorClassOrInstance === 'function'
-        ? new (actorClassOrInstance as new () => ActorImplementation)()
-        : actorClassOrInstance
+      // Support classes, instances, and factory functions
+      let actor: ActorImplementation
+      
+      if (typeof actorClassOrInstanceOrFactory === 'function') {
+        // Check if it's a class constructor or factory function
+        // Class constructors have a prototype with methods/properties
+        if (actorClassOrInstanceOrFactory.prototype && 
+            Object.getOwnPropertyNames(actorClassOrInstanceOrFactory.prototype).length > 1) {
+          // It's a class constructor - instantiate it
+          actor = new (actorClassOrInstanceOrFactory as new () => ActorImplementation)()
+        } else {
+          // It's a factory function - call it to get an instance
+          actor = (actorClassOrInstanceOrFactory as () => ActorImplementation)()
+        }
+      } else {
+        // It's already an instance
+        actor = actorClassOrInstanceOrFactory
+      }
 
       this.metricsCollector?.recordActorEvent('activated')
       recordedActivation = true
