@@ -189,7 +189,7 @@ describe('PipelineActorWorker - Registration Patterns', () => {
   })
 
   describe('Pattern 3: Factory Function Registration', () => {
-    it('should work with factory functions', async () => {
+    it('should work with factory functions (no context)', async () => {
       const results: string[] = []
 
       class MockDatabase {
@@ -233,6 +233,59 @@ describe('PipelineActorWorker - Registration Patterns', () => {
       const state = await stateStore.getPipelineState(pipelineId)
       expect(state?.status).toBe('completed')
       expect(results).toEqual(['data-test-123'])
+    })
+
+    it('should work with factory functions that accept context', async () => {
+      const results: any[] = []
+
+      class ContextAwareActor implements ActorImplementation {
+        constructor(
+          private context: any,
+          private dependency: string
+        ) {}
+
+        async execute(input: string): Promise<any> {
+          const output = {
+            input,
+            dependency: this.dependency,
+            actorId: this.context.actorId,
+            actorType: this.context.actorType
+          }
+          results.push(output)
+          return output
+        }
+      }
+
+      // Factory function that accepts context
+      const dependency = 'injected-dependency'
+      const actorFactory = (ctx: any) => new ContextAwareActor(ctx, dependency)
+
+      worker.registerActor('ContextAwareActor', actorFactory)
+      worker.startWorker('ContextAwareActor', 1)
+
+      const pipeline: PipelineDefinition = {
+        name: 'factory-with-context-test',
+        stages: [
+          {
+            name: 'process',
+            actor: 'ContextAwareActor',
+            input: '$.trigger.value'
+          }
+        ]
+      }
+
+      const pipelineId = await executor.startPipeline(pipeline, { value: 'test-data' })
+      await executor.waitForCompletion(pipelineId, 5000)
+
+      const state = await stateStore.getPipelineState(pipelineId)
+      expect(state?.status).toBe('completed')
+      expect(results).toHaveLength(1)
+      expect(results[0]).toMatchObject({
+        input: 'test-data',
+        dependency: 'injected-dependency',
+        actorType: 'ContextAwareActor'
+      })
+      expect(results[0].actorId).toContain('ContextAwareActor')
     })
 
     it('should create a new instance per task with factory functions', async () => {

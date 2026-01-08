@@ -23,7 +23,7 @@ export interface ActorImplementation {
  */
 export class PipelineActorWorker {
   private messageQueue: BullMQMessageQueue
-  private actors = new Map<string, ActorImplementation | (new () => ActorImplementation) | (() => ActorImplementation)>()
+  private actors = new Map<string, ActorImplementation | (new () => ActorImplementation) | (() => ActorImplementation) | ((ctx: any) => ActorImplementation)>()
   private stateStore?: PipelineStateStore
   private readonly metricsCollector?: MetricsCollector
 
@@ -40,7 +40,7 @@ export class PipelineActorWorker {
   /**
    * Register an actor implementation (supports classes, instances, and factory functions)
    */
-  registerActor(actorType: string, actorClassOrInstanceOrFactory: ActorImplementation | (new () => ActorImplementation) | (() => ActorImplementation)): void {
+  registerActor(actorType: string, actorClassOrInstanceOrFactory: ActorImplementation | (new () => ActorImplementation) | (() => ActorImplementation) | ((ctx: any) => ActorImplementation)): void {
     this.actors.set(actorType, actorClassOrInstanceOrFactory)
     console.log(`📦 Registered actor: ${actorType}`)
   }
@@ -139,8 +139,19 @@ export class PipelineActorWorker {
           // It's a class constructor - instantiate it
           actor = new (actorClassOrInstanceOrFactory as new () => ActorImplementation)()
         } else {
-          // It's a factory function - call it to get an instance
-          actor = (actorClassOrInstanceOrFactory as () => ActorImplementation)()
+          // It's a factory function - check if it expects a context parameter
+          if (actorClassOrInstanceOrFactory.length === 1) {
+            // Factory expects context - create a minimal ActorContext
+            const actorContext: any = {
+              actorId: `${actorType}-${taskIndex}`,
+              actorType,
+              metadata: metadata || {}
+            }
+            actor = (actorClassOrInstanceOrFactory as (ctx: any) => ActorImplementation)(actorContext)
+          } else {
+            // Factory with no parameters
+            actor = (actorClassOrInstanceOrFactory as () => ActorImplementation)()
+          }
         }
       } else {
         // It's already an instance
