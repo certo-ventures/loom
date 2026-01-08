@@ -1,6 +1,6 @@
 {
   "name": "@certo-ventures/loom",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Minimal durable execution framework for AI agents",
   "type": "module",
   "main": "./dist/src/index.js",
@@ -12,7 +12,9 @@
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
-      "import": "./dist/src/index.js"
+      "import": "./dist/src/index.js",
+      "require": "./dist/src/index.js",
+      "default": "./dist/src/index.js"
     },
     "./actor": {
       "types": "./dist/src/actor/index.d.ts",
