@@ -1,0 +1,19 @@
+node:internal/modules/esm/resolve:313
+  return new ERR_PACKAGE_PATH_NOT_EXPORTED(
+         ^
+
+Error [ERR_PACKAGE_PATH_NOT_EXPORTED]: Package subpath './runtime' is not defined by "exports" in /mnt/c/source/loom/packages/loom-api-service/node_modules/@certo-ventures/loom/package.json
+    at exportsNotFound (node:internal/modules/esm/resolve:313:10)
+    at packageExportsResolve (node:internal/modules/esm/resolve:603:13)
+    at resolveExports (node:internal/modules/cjs/loader:661:36)
+    at Module._findPath (node:internal/modules/cjs/loader:753:31)
+    at node:internal/modules/cjs/loader:1391:27
+    at nextResolveSimple (/mnt/c/source/loom/packages/loom-api-service/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1004)
+    at /mnt/c/source/loom/packages/loom-api-service/node_modules/tsx/dist/register-D46fvsV_.cjs:3:2630
+    at /mnt/c/source/loom/packages/loom-api-service/node_modules/tsx/dist/register-D46fvsV_.cjs:3:1542
+    at resolveTsPaths (/mnt/c/source/loom/packages/loom-api-service/node_modules/tsx/dist/register-D46fvsV_.cjs:4:760)
+    at /mnt/c/source/loom/packages/loom-api-service/node_modules/tsx/dist/register-D46fvsV_.cjs:4:1102 {
+  code: 'ERR_PACKAGE_PATH_NOT_EXPORTED'
+}
+
+Node.js v24.1.0

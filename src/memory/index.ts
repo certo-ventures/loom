@@ -14,6 +14,9 @@ export type {
   CachedResult 
 } from './types.js'
 
+// Re-export memory graph storage
+export * from './graph'
+
 // Re-export memory helpers for convenience
 export { createMemoryHelpers } from '../actor/memory-helpers.js'
 export type { MemoryHelpers, MemoryContext } from '../actor/memory-helpers.js'
