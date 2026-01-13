@@ -24,6 +24,7 @@ import { DEFAULT_TASK_LEASE_TTL_MS } from './pipeline-state-store'
 import { CircuitBreakerManager } from './circuit-breaker'
 import { SagaCoordinator } from './saga-coordinator'
 import type { ApprovalDecision } from './human-approval-executor'
+import { ExpressionEvaluator } from './expression-evaluator'
 
 interface DeadLetterRecord {
   queueName: string
@@ -322,6 +323,16 @@ export class PipelineOrchestrator {
 
       if (!this.areDependenciesMet(state, stageName)) {
         continue
+      }
+
+      // Check when condition before executing
+      if (stageDef.when) {
+        const shouldExecute = ExpressionEvaluator.evaluate(stageDef.when, state.context)
+        if (!shouldExecute) {
+          console.log(`   ⏭️  Skipping stage ${stageName} (when condition evaluated to false)`);
+          await this.skipStage(pipelineId, stageDef, stageState)
+          continue
+        }
       }
 
       try {
@@ -982,6 +993,38 @@ export class PipelineOrchestrator {
           state.activeStages.delete(stage.name)
           await this.updatePipelineCursor(pipelineId, Array.from(state.activeStages))
 
+          await this.startNextStagesIfReady(pipelineId, stage.name)
+        }
+
+        /**
+         * Skip a stage that doesn't meet its when condition
+         */
+        private async skipStage(
+          pipelineId: string,
+          stage: StageDefinition,
+          stageState: StageState
+        ): Promise<void> {
+          stageState.status = 'completed'
+          stageState.completedAt = Date.now()
+          stageState.expectedTasks = 0
+          stageState.completedTasks = 0
+          stageState.outputs = []
+
+          await this.stateStore.updateStageProgress({
+            pipelineId,
+            stageName: stage.name,
+            status: 'completed',
+            completedAt: stageState.completedAt,
+            expectedTasks: 0
+          })
+
+          const state = this.pipelines.get(pipelineId)
+          if (state) {
+            state.context.stages[stage.name] = []
+            await this.stateStore.snapshotContext(pipelineId, state.context)
+          }
+
+          // Progress to next stages
           await this.startNextStagesIfReady(pipelineId, stage.name)
         }
 
