@@ -19,21 +19,29 @@ vi.mock('gun', () => {
 
 // Mock http server
 vi.mock('http', () => ({
-  createServer: vi.fn(() => ({
-    listen: vi.fn((port: number, host: string, callback: () => void) => {
-      setTimeout(callback, 0)
-    }),
-    close: vi.fn((callback: (err?: Error) => void) => {
-      setTimeout(() => callback(), 0)
-    }),
-    on: vi.fn()
-  }))
+  createServer: vi.fn(() => {
+    const server = {
+      listen: vi.fn((port: number, host: string, callback: () => void) => {
+        setTimeout(callback, 0)
+        return server
+      }),
+      close: vi.fn((callback: (err?: Error) => void) => {
+        setTimeout(() => callback(), 0)
+      }),
+      on: vi.fn(),
+      once: vi.fn()
+    }
+    return server
+  })
 }))
 
 // Mock fs for storage initialization
 vi.mock('fs/promises', () => ({
   mkdir: vi.fn().mockResolvedValue(undefined),
-  stat: vi.fn().mockResolvedValue({ size: 1024 })
+  writeFile: vi.fn().mockResolvedValue(undefined),
+  unlink: vi.fn().mockResolvedValue(undefined),
+  stat: vi.fn().mockResolvedValue({ size: 1024, isFile: () => true, isDirectory: () => false }),
+  readdir: vi.fn().mockResolvedValue([])
 }))
 
 describe('LoomMeshService', () => {
@@ -258,7 +266,7 @@ describe('LoomMeshService', () => {
       
       service = new LoomMeshService(config)
       
-      expect(() => service.getGun()).toThrow('LoomMesh service not started')
+      expect(() => service.getGun()).toThrow('LoomMesh service not ready')
     })
   })
   
@@ -337,7 +345,7 @@ describe('LoomMeshService', () => {
       
       service = new LoomMeshService(config)
       
-      await expect(service.start()).rejects.toThrow('Failed to create storage directory')
+      await expect(service.start()).rejects.toThrow('Failed to initialize storage directory')
       expect(service.state).toBe(ServiceLifecycle.ERROR)
     })
     
