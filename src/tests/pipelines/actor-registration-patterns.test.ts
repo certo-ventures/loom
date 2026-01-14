@@ -12,28 +12,28 @@ import { InMemoryActorRegistry } from '../../discovery'
 import { RedisPipelineStateStore } from '../../pipelines/pipeline-state-store'
 import { createIsolatedRedis as createRedisTestContext, type RedisTestContext } from '../utils/redis-test-utils'
 import type { ActorImplementation } from '../../pipelines/pipeline-actor-worker'
-// @ts-ignore - Module doesn't exist yet
-import type { PipelineDefinition } from '../../pipelines/pipeline-executor'
-// @ts-ignore - Module doesn't exist yet
-import { PipelineExecutor } from '../../pipelines/pipeline-executor'
+import type { PipelineDefinition } from '../../pipelines/pipeline-orchestrator'
+import { PipelineOrchestrator } from '../../pipelines/pipeline-orchestrator'
 
-describe.skip('PipelineActorWorker - Registration Patterns', () => {
+describe('PipelineActorWorker - Registration Patterns', () => {
   let redisContext: RedisTestContext
   let messageQueue: BullMQMessageQueue
   let stateStore: RedisPipelineStateStore
   let worker: PipelineActorWorker
-  let executor: PipelineExecutor
+  let executor: PipelineOrchestrator
+  let actorRegistry: InMemoryActorRegistry
 
   beforeEach(async () => {
     redisContext = await createRedisTestContext()
     stateStore = new RedisPipelineStateStore(redisContext.stateRedis)
+    actorRegistry = new InMemoryActorRegistry()
     messageQueue = new BullMQMessageQueue(
-      new InMemoryActorRegistry(),
+      actorRegistry,
       redisContext.stateRedis,
       stateStore
     )
     worker = new PipelineActorWorker(messageQueue, stateStore)
-    executor = new PipelineExecutor(messageQueue, stateStore)
+    executor = new PipelineOrchestrator(messageQueue, actorRegistry, redisContext.stateRedis, stateStore)
   })
 
   afterEach(async () => {

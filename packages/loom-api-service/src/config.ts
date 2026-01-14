@@ -61,7 +61,7 @@ const ConfigSchema = z.object({
 export type Config = z.infer<typeof ConfigSchema>
 
 export const config: Config = ConfigSchema.parse({
-  env: process.env.NODE_ENV,
+  env: process.env.NODE_ENV || 'development',
   port: process.env.PORT,
   host: process.env.HOST,
   
