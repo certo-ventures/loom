@@ -153,7 +153,8 @@ describe('ObservabilityMetrics', () => {
 
   describe('Time-Series Metrics', () => {
     it('should aggregate metrics into time buckets', async () => {
-      const baseTime = Date.now() - 7200000;  // 2 hours ago
+      // Align to hour boundary
+      const baseTime = Math.floor((Date.now() - 7200000) / 3600000) * 3600000;
 
       // Create 20 decisions across 2 hours (10 per hour)
       for (let i = 0; i < 20; i++) {
@@ -251,7 +252,8 @@ describe('ObservabilityMetrics', () => {
     });
 
     it('should detect trend in bucket sequence', async () => {
-      const baseTime = Date.now() - 10800000;  // 3 hours ago
+      // Align to hour boundary to ensure predictable bucket count
+      const baseTime = Math.floor((Date.now() - 10800000) / 3600000) * 3600000;
 
       // Create improving quality trend: 50% → 75% → 90%
       for (let hour = 0; hour < 3; hour++) {
@@ -288,7 +290,8 @@ describe('ObservabilityMetrics', () => {
 
   describe('Trend Analysis', () => {
     it('should detect improving quality trend', async () => {
-      const baseTime = Date.now() - 14400000;  // 4 hours ago
+      // Align to hour boundary
+      const baseTime = Math.floor((Date.now() - 14400000) / 3600000) * 3600000;
 
       // Create clear improving trend: 40% → 60% → 80% → 90%
       for (let hour = 0; hour < 4; hour++) {
@@ -325,7 +328,8 @@ describe('ObservabilityMetrics', () => {
     });
 
     it('should detect degrading quality trend', async () => {
-      const baseTime = Date.now() - 14400000;
+      // Align to hour boundary
+      const baseTime = Math.floor((Date.now() - 14400000) / 3600000) * 3600000;
 
       // Create clear degrading trend: 90% → 70% → 50% → 40%
       for (let hour = 0; hour < 4; hour++) {
@@ -362,7 +366,8 @@ describe('ObservabilityMetrics', () => {
     });
 
     it('should detect stable trend', async () => {
-      const baseTime = Date.now() - 14400000;
+      // Align to hour boundary
+      const baseTime = Math.floor((Date.now() - 14400000) / 3600000) * 3600000;
 
       // Create stable trend: 70% throughout
       for (let hour = 0; hour < 4; hour++) {
@@ -395,7 +400,8 @@ describe('ObservabilityMetrics', () => {
     });
 
     it('should analyze exception rate trend (inverted direction)', async () => {
-      const baseTime = Date.now() - 14400000;
+      // Align to hour boundary
+      const baseTime = Math.floor((Date.now() - 14400000) / 3600000) * 3600000;
 
       // Increasing exception rate = degrading
       for (let hour = 0; hour < 4; hour++) {

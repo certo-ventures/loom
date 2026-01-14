@@ -350,10 +350,10 @@ export class ObservabilityMetrics extends ActorMemory {
    * Calculate confidence score component
    */
   private calculateConfidenceScore(decision: DecisionTrace): number {
-    // Look for confidence in decision object or metadata
-    const confidence = (decision.decision as any)?.confidence || 
+    // Look for confidence in decision metadata or llmAnalysis
+    const confidence = (decision as any).confidence || 
+                      decision.llmAnalysis?.confidence ||
                       (decision.outcome as any)?.confidence || 
-                      (decision as any).confidence || 
                       0.7;  // Default moderate confidence
     
     return Math.max(0, Math.min(1, confidence));

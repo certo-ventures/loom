@@ -202,7 +202,8 @@ export class PolicySync extends ActorMemory {
     }
 
     try {
-      return JSON.parse(facts[0].text);
+      const text = facts[0].text || (facts[0] as any).content;
+      return JSON.parse(text);
     } catch {
       return [];
     }

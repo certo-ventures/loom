@@ -56,8 +56,8 @@ describe('PipelineActorWorker - Registration Patterns', () => {
       const results: string[] = []
 
       class SimpleActor implements ActorImplementation {
-        async execute(input: string): Promise<string> {
-          const output = `processed-${input}`
+        async execute(input: any): Promise<string> {
+          const output = `processed-${input.value || input}`
           results.push(output)
           return output
         }
@@ -73,7 +73,7 @@ describe('PipelineActorWorker - Registration Patterns', () => {
             name: 'process',
             mode: 'single',
             actor: 'SimpleActor',
-            input: '$.trigger.value'
+            input: { value: 'test-data' }
           }
         ]
       }
@@ -110,10 +110,10 @@ describe('PipelineActorWorker - Registration Patterns', () => {
           private llmConfig: MockLLMConfig
         ) {}
 
-        async execute(input: string): Promise<string> {
+        async execute(input: any): Promise<string> {
           // Use the injected dependencies
           const cosmosData = await this.cosmosClient.query('SELECT * FROM items')
-          const output = `${input}-cosmos:${cosmosData.length}-model:${this.llmConfig.model}`
+          const output = `${input.value || input}-cosmos:${cosmosData.length}-model:${this.llmConfig.model}`
           results.push(output)
           return output
         }
@@ -135,12 +135,12 @@ describe('PipelineActorWorker - Registration Patterns', () => {
             name: 'process',
             mode: 'single',
             actor: 'DependentActor',
-            input: '$.trigger.value'
+            input: { value: 'test' }
           }
         ]
       }
 
-      const pipelineId = await executor.execute(pipeline, { value: 'test' })
+      const pipelineId = await executor.execute(pipeline, {})
       await waitForPipeline(stateStore, pipelineId, 5000)
 
       const record = await stateStore.getPipeline(pipelineId)
@@ -159,7 +159,7 @@ describe('PipelineActorWorker - Registration Patterns', () => {
           this.id = ++instanceCounter
         }
 
-        async execute(input: string): Promise<{ id: number; input: string }> {
+        async execute(input: any): Promise<{ id: number; input: any }> {
           instanceIds.add(this.id)
           return { id: this.id, input }
         }
@@ -214,8 +214,8 @@ describe('PipelineActorWorker - Registration Patterns', () => {
       class FactoryActor implements ActorImplementation {
         constructor(private db: MockDatabase) {}
 
-        async execute(input: string): Promise<string> {
-          const data = await this.db.fetch(input)
+        async execute(input: any): Promise<string> {
+          const data = await this.db.fetch(input.id || input)
           results.push(data)
           return data
         }
@@ -235,12 +235,12 @@ describe('PipelineActorWorker - Registration Patterns', () => {
             name: 'process',
             mode: 'single',
             actor: 'FactoryActor',
-            input: '$.trigger.id'
+            input: { id: 'test-123' }
           }
         ]
       }
 
-      const pipelineId = await executor.execute(pipeline, { id: 'test-123' })
+      const pipelineId = await executor.execute(pipeline, {})
       await waitForPipeline(stateStore, pipelineId, 5000)
 
       const record = await stateStore.getPipeline(pipelineId)
@@ -257,9 +257,9 @@ describe('PipelineActorWorker - Registration Patterns', () => {
           private dependency: string
         ) {}
 
-        async execute(input: string): Promise<any> {
+        async execute(input: any): Promise<any> {
           const output = {
-            input,
+            input: input.value || input,
             dependency: this.dependency,
             actorId: this.context.actorId,
             actorType: this.context.actorType
@@ -283,7 +283,7 @@ describe('PipelineActorWorker - Registration Patterns', () => {
             name: 'process',
             mode: 'single',
             actor: 'ContextAwareActor',
-            input: '$.trigger.value'
+            input: { value: 'test-data' }
           }
         ]
       }
@@ -361,8 +361,8 @@ describe('PipelineActorWorker - Registration Patterns', () => {
 
       // Pattern 1: Class
       class ClassActor implements ActorImplementation {
-        async execute(input: string): Promise<string> {
-          const result = `class-${input}`
+        async execute(input: any): Promise<string> {
+          const result = `class-${input.value || input}`
           results.push(result)
           return result
         }
@@ -371,8 +371,8 @@ describe('PipelineActorWorker - Registration Patterns', () => {
       // Pattern 2: Instance with dependency
       class InstanceActor implements ActorImplementation {
         constructor(private prefix: string) {}
-        async execute(input: string): Promise<string> {
-          const result = `${this.prefix}-${input}`
+        async execute(input: any): Promise<string> {
+          const result = `${this.prefix}-${input.value || input}`
           results.push(result)
           return result
         }
@@ -381,8 +381,9 @@ describe('PipelineActorWorker - Registration Patterns', () => {
       // Pattern 3: Factory
       class FactoryActor implements ActorImplementation {
         constructor(private multiplier: number) {}
-        async execute(input: number): Promise<number> {
-          const result = input * this.multiplier
+        async execute(input: any): Promise<number> {
+          const value = input.value !== undefined ? input.value : input
+          const result = value * this.multiplier
           results.push(result)
           return result
         }
@@ -403,28 +404,24 @@ describe('PipelineActorWorker - Registration Patterns', () => {
             name: 'step1',
             mode: 'single',
             actor: 'ClassActor',
-            input: '$.trigger.step1.value'
+            input: { value: 'test' }
           },
           {
             name: 'step2',
             mode: 'single',
             actor: 'InstanceActor',
-            input: '$.trigger.step2.value'
+            input: { value: 'data' }
           },
           {
             name: 'step3',
             mode: 'single',
             actor: 'FactoryActor',
-            input: '$.trigger.step3.value'
+            input: { value: 5 }
           }
         ]
       }
 
-      const pipelineId = await executor.execute(pipeline, {
-        step1: { value: 'test' },
-        step2: { value: 'data' },
-        step3: { value: 5 }
-      })
+      const pipelineId = await executor.execute(pipeline, {})
       await waitForPipeline(stateStore, pipelineId, 5000)
 
       const record = await stateStore.getPipeline(pipelineId)

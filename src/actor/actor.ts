@@ -115,6 +115,7 @@ export abstract class Actor {
   private lastCompactionTime: number = 0
   private cachedCompactionThreshold: number | undefined
   private lastInvocation?: InvocationJournalEntry
+  private infrastructureOptions?: ActorInfrastructureConfig
   
   // Decision trace state
   private decisionTraceConfig?: DecisionTraceConfig
@@ -128,7 +129,7 @@ export abstract class Actor {
     idempotencyStore?: IdempotencyStore,
     memoryAdapter?: MemoryAdapter,
     journalStore?: JournalStore,
-    lamportClock?: LamportClock,
+    infrastructureOptions?: ActorInfrastructureConfig,
     graphMemory?: ActorMemory,
     decisionMemory?: DecisionMemory,
     policyMemory?: PolicyMemory,
@@ -141,7 +142,8 @@ export abstract class Actor {
     this.idempotencyStore = idempotencyStore
     this.memoryAdapter = memoryAdapter
     this.journalStore = journalStore
-    this.lamportClock = lamportClock ?? new LamportClock()
+    this.lamportClock = new LamportClock()
+    this.infrastructureOptions = infrastructureOptions
     this.graphMemory = graphMemory
     this.decisionMemory = decisionMemory
     this.policyMemory = policyMemory
@@ -235,7 +237,8 @@ export abstract class Actor {
    * Merges actor-specific config with defaults
    */
   getInfrastructureConfig() {
-    return mergeActorConfig((this.constructor as typeof Actor).config)
+    const baseConfig = mergeActorConfig((this.constructor as typeof Actor).config)
+    return { ...baseConfig, ...this.infrastructureOptions }
   }
 
   /**

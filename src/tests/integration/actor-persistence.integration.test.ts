@@ -75,6 +75,7 @@ class OrderActor extends Actor {
 
 describeIfRedis('Actor Persistence Integration Tests', () => {
   let journalStore: JournalStore
+  let redisClient: any
   const testPrefix = `actor-integration-${Date.now()}`
 
   beforeAll(async () => {
@@ -87,6 +88,9 @@ describeIfRedis('Actor Persistence Integration Tests', () => {
     if (!journalStore) {
       throw new Error('Failed to create JournalStore')
     }
+
+    // Get Redis client for direct access in tests
+    redisClient = (journalStore as any).redis
 
     try {
       await journalStore.readEntries('connection-test')
@@ -175,7 +179,7 @@ describeIfRedis('Actor Persistence Integration Tests', () => {
   })
 
   describe('Auto-Compaction', () => {
-    it('should auto-compact journal after threshold', async () => {
+    it('should auto-compact journal after threshold', { timeout: 10000 }, async () => {
       const actorId = `${testPrefix}-compaction-1`
       const context: ActorContext = { actorId, actorType: 'CounterActor' }
 
@@ -193,10 +197,14 @@ describeIfRedis('Actor Persistence Integration Tests', () => {
       // Perform 15 operations (should trigger compaction at 10)
       for (let i = 0; i < 15; i++) {
         await actor.execute({ operation: 'increment', value: 1 })
+        if (i === 9) {
+          // After 10th operation, wait for compaction to be eligible
+          await new Promise(resolve => setTimeout(resolve, 5100))
+        }
       }
 
-      // Wait for compaction to complete
-      await new Promise(resolve => setTimeout(resolve, 300))
+      // Wait for final compaction to complete
+      await new Promise(resolve => setTimeout(resolve, 200))
 
       // Should have a snapshot
       const snapshot = await journalStore.getLatestSnapshot(actorId)
@@ -208,7 +216,7 @@ describeIfRedis('Actor Persistence Integration Tests', () => {
       expect(entries.length).toBeLessThan(15) // Should have been compacted
     })
 
-    it('should recover from snapshot after compaction', async () => {
+    it('should recover from snapshot after compaction', { timeout: 10000 }, async () => {
       const actorId = `${testPrefix}-compaction-recovery`
       const context: ActorContext = { actorId, actorType: 'CounterActor' }
 
@@ -225,9 +233,13 @@ describeIfRedis('Actor Persistence Integration Tests', () => {
       // Trigger compaction
       for (let i = 0; i < 20; i++) {
         await actor1.execute({ operation: 'increment', value: 1 })
+        if (i === 9) {
+          // After 10th operation, wait for compaction to be eligible
+          await new Promise(resolve => setTimeout(resolve, 5100))
+        }
       }
 
-      await new Promise(resolve => setTimeout(resolve, 300))
+      await new Promise(resolve => setTimeout(resolve, 200))
 
       const finalState = actor1.getState().count
 
@@ -321,7 +333,7 @@ describeIfRedis('Actor Persistence Integration Tests', () => {
 
       // Manually corrupt an entry in Redis
       const streamKey = `journal:${actorId}:entries`
-      await redis.xadd(streamKey, '*', 'data', 'invalid-json')
+      await redisClient.xadd(streamKey, '*', 'data', 'invalid-json')
 
       // Attempt recovery - should skip corrupted entry
       const entries = await journalStore.readEntries(actorId)
