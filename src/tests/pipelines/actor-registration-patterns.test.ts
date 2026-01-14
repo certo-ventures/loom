@@ -39,11 +39,7 @@ describe('PipelineActorWorker - Registration Patterns', () => {
     redisContext = await createRedisTestContext()
     stateStore = new RedisPipelineStateStore(redisContext.stateRedis)
     actorRegistry = new InMemoryActorRegistry()
-    messageQueue = new BullMQMessageQueue(
-      actorRegistry,
-      redisContext.stateRedis,
-      stateStore
-    )
+    messageQueue = new BullMQMessageQueue(redisContext.queueRedis)
     worker = new PipelineActorWorker(messageQueue, stateStore)
     executor = new PipelineOrchestrator(messageQueue, actorRegistry, redisContext.stateRedis, stateStore)
   })
@@ -407,24 +403,28 @@ describe('PipelineActorWorker - Registration Patterns', () => {
             name: 'step1',
             mode: 'single',
             actor: 'ClassActor',
-            input: '"test"'
+            input: '$.trigger.step1.value'
           },
           {
             name: 'step2',
             mode: 'single',
             actor: 'InstanceActor',
-            input: '"data"'
+            input: '$.trigger.step2.value'
           },
           {
             name: 'step3',
             mode: 'single',
             actor: 'FactoryActor',
-            input: '5'
+            input: '$.trigger.step3.value'
           }
         ]
       }
 
-      const pipelineId = await executor.execute(pipeline, {})
+      const pipelineId = await executor.execute(pipeline, {
+        step1: { value: 'test' },
+        step2: { value: 'data' },
+        step3: { value: 5 }
+      })
       await waitForPipeline(stateStore, pipelineId, 5000)
 
       const record = await stateStore.getPipeline(pipelineId)
