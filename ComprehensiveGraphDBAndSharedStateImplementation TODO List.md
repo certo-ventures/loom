@@ -1,6 +1,6 @@
 Comprehensive Implementation TODO List
 Project: LoomWeave
-Distributed Graph Database with Git-like Semantics on GUN
+Distributed Graph Database with Git-like Semantics on LoomMesh
 
 Phase 0: Foundation & Dependencies (3 days)
 TODO-001: Project Structure
@@ -26,7 +26,7 @@ TODO-003: Azure Container Apps Research
  Create docs/AZURE_DEPLOYMENT.md
 Acceptance: Deployment architecture documented with specific ACA features
 
-Phase 1: GUN Service Wrapper (5 days)
+Phase 1: LoomMesh Service Wrapper (5 days)
 TODO-004: Service Interface
  Define Service interface if not exists
  Define HealthCheck interface
@@ -37,7 +37,7 @@ Acceptance: Interface defined, typed, tested
 
 Lines of code: ~50
 
-TODO-005: GUN Service Config
+TODO-005: LoomMesh Service Config
  Define GunServiceConfig interface
  Support Azure Container Apps service discovery (env var peers)
  Support Azure Files mount points for persistence
@@ -48,20 +48,20 @@ Acceptance: Config typed, validated, ACA-aware
 
 Lines of code: ~100
 
-TODO-006: Core GUN Service
+TODO-006: Core LoomMesh Service
  Implement GunService class
- Implement start() - initialize GUN instance
+ Implement start() - initialize LoomMesh instance
  Implement stop() - cleanup
  Implement getGun() - return shared instance
  Implement isHealthy() - check peer connections
  Add peer connection management
  Add retry logic with exponential backoff
- Write unit tests (mock GUN)
+ Write unit tests (mock LoomMesh)
 Acceptance: Service starts/stops cleanly, health checks work
 
 Lines of code: ~200
 
-TODO-007: GUN Metrics & Monitoring
+TODO-007: LoomMesh Metrics & Monitoring
  Implement getMetrics() method
  Track peer count
  Track node count (estimate)
@@ -73,7 +73,7 @@ Acceptance: Metrics exported, accurate
 
 Lines of code: ~150
 
-TODO-008: GUN Service Integration Tests
+TODO-008: LoomMesh Service Integration Tests
  Test service lifecycle (start/stop)
  Test peer connection (with mock relay)
  Test offline mode
@@ -84,11 +84,11 @@ Acceptance: All integration tests pass
 
 Lines of code: ~300
 
-Phase 2: GUN State Store Adapter (4 days)
-TODO-009: GUN State Store Interface
+Phase 2: LoomMesh State Store Adapter (4 days)
+TODO-009: LoomMesh State Store Interface
  Implement StateStore interface
- Implement get(actorId) - fetch state from GUN
- Implement set(actorId, state) - save state to GUN
+ Implement get(actorId) - fetch state from LoomMesh
+ Implement set(actorId, state) - save state to LoomMesh
  Implement delete(actorId) - tombstone pattern
  Implement list(prefix) - query actors
  Add timeout handling (don't wait forever)
@@ -111,10 +111,10 @@ Lines of code: ~150
 TODO-011: State Store Integration
  Add gun option to AdapterConfig.stateStore.type
  Update createStateStore() to accept GunService
- Handle case where GUN not enabled (graceful fallback)
+ Handle case where LoomMesh not enabled (graceful fallback)
  Update tests
  Update TypeScript types
-Acceptance: Factory can create GUN state store
+Acceptance: Factory can create LoomMesh state store
 
 Lines of code: ~50
 
@@ -132,8 +132,8 @@ Lines of code: ~400
 Phase 3: Multi-Node State Sync (5 days)
 TODO-013: Actor State Sync Helper
  Implement ActorStateSync class
- Implement subscribeToRemoteUpdates() - watch GUN changes
- Implement broadcastStateChange() - publish to GUN
+ Implement subscribeToRemoteUpdates() - watch LoomMesh changes
+ Implement broadcastStateChange() - publish to LoomMesh
  Add conflict detection
  Add change debouncing (batch rapid updates)
  Add circuit breaker for failing peers
@@ -153,9 +153,9 @@ Acceptance: Actors can receive per-instance config
 Lines of code: ~30 (already done in previous session!)
 
 TODO-015: Docker Compose Test Environment
- Create GUN relay service
- Create Loom node 1 (with GUN)
- Create Loom node 2 (with GUN)
+ Create LoomMesh relay service
+ Create Loom node 1 (with LoomMesh)
+ Create Loom node 2 (with LoomMesh)
  Add network configuration
  Add volume mounts
  Add health checks
@@ -190,7 +190,7 @@ Acceptance: Clean, type-safe graph model
 Lines of code: ~200
 
 TODO-018: LoomWeave Storage Layer
- Implement LoomWeaveStore class on GUN
+ Implement LoomWeaveStore class on LoomMesh
  Implement putNode(id, data) - store node
  Implement putEdge(from, to, type, props) - store edge
  Implement getNode(id) - retrieve node
@@ -200,7 +200,7 @@ TODO-018: LoomWeave Storage Layer
  Implement type index
  Add batch operations for efficiency
  Write tests
-Acceptance: Nodes and edges persist in GUN, retrievable
+Acceptance: Nodes and edges persist in LoomMesh, retrievable
 
 Lines of code: ~400
 
@@ -303,11 +303,11 @@ Acceptance: Ergonomic, powerful query interface
 
 Lines of code: ~300
 
-Phase 6: Git-like Versioning on GUN (5 days)
+Phase 6: Git-like Versioning on LoomMesh (5 days)
 TODO-027: Content-Addressable Storage
  Implement ContentAddressableStore class
  SHA-256 hashing for content addressing
- Store objects by hash in GUN
+ Store objects by hash in LoomMesh
  Implement writeObject(obj) -> hash
  Implement readObject(hash) -> obj
  Add object verification
@@ -330,7 +330,7 @@ Lines of code: ~200
 
 TODO-029: Branch Management
  Implement BranchManager class
- Store refs in GUN (refs/heads/branch-name -> commit hash)
+ Store refs in LoomMesh (refs/heads/branch-name -> commit hash)
  Implement createBranch(name, from)
  Implement listBranches()
  Implement deleteBranch(name)
@@ -416,23 +416,23 @@ TODO-036: Azure Service Discovery
  Auto-discover peers via Container Apps API
  Implement health-based peer selection
  Write tests
-Acceptance: GUN auto-discovers peers in ACA
+Acceptance: LoomMesh auto-discovers peers in ACA
 
 Lines of code: ~200
 
 TODO-037: Azure Files Persistence
- Mount Azure Files as GUN data directory
+ Mount Azure Files as LoomMesh data directory
  Handle shared storage across replicas
  Implement file locking (avoid corruption)
  Add retry logic for transient Azure errors
  Write tests
-Acceptance: GUN persists to Azure Files reliably
+Acceptance: LoomMesh persists to Azure Files reliably
 
 Lines of code: ~150
 
 TODO-038: Azure Deployment Templates
  Create Container Apps environment
- Create GUN relay container
+ Create LoomMesh relay container
  Create Loom node containers
  Configure ingress (internal/external)
  Configure scaling rules
@@ -456,7 +456,7 @@ Lines of code: ~250
 
 Phase 9: Performance & Optimization (5 days)
 TODO-040: Caching Layer
- Implement multi-level cache (L1: memory, L2: GUN)
+ Implement multi-level cache (L1: memory, L2: LoomMesh)
  LRU eviction policy
  Cache warming on startup
  Cache invalidation on updates
@@ -467,7 +467,7 @@ Acceptance: 90%+ cache hit rate for hot data
 Lines of code: ~300
 
 TODO-041: Batch Operations
- Batch multiple writes into single GUN operation
+ Batch multiple writes into single LoomMesh operation
  Batch read requests
  Configurable batch size/timeout
  Error handling (partial failures)
@@ -518,7 +518,7 @@ TODO-045: API Documentation
 Acceptance: Every API documented
 
 TODO-046: Tutorials
- Tutorial: Setting up GUN service
+ Tutorial: Setting up LoomMesh service
  Tutorial: Building an agent context graph
  Tutorial: Using git-like versioning
  Tutorial: Writing graph queries
@@ -549,7 +549,7 @@ Lines of code: ~200
 Summary
 Phase	Days	TODOs	Est. Lines
 0. Foundation	3	3	150
-1. GUN Service	5	5	800
+1. LoomMesh Service	5	5	800
 2. State Store	4	4	850
 3. Multi-Node	5	4	830
 4. Graph Storage	6	4	1500
@@ -561,7 +561,7 @@ Phase	Days	TODOs	Est. Lines
 10. Documentation	3	4	1000
 TOTAL	51 days	48 TODOs	~12,230 lines
 Minimal Code, Maximum Functionality Strategy
-Leverage GUN - Don't rebuild storage/sync (saved ~5000 lines)
+Leverage LoomMesh - Don't rebuild storage/sync (saved ~5000 lines)
 Use Immer patches - Git-like diffs for free (saved ~1000 lines)
 Reuse Actor infrastructure - No separate graph runtime (saved ~2000 lines)
 TypeScript types - Catch errors at compile time (saved debugging time)
@@ -569,7 +569,7 @@ Composition over inheritance - Small, focused classes
 Test each component - Catch bugs early (save refactoring time)
 Implementation Order (Prioritized)
 Must Have (MVP) - 25 days
-Phase 0-3: GUN service + state sync
+Phase 0-3: LoomMesh service + state sync
 Phase 4: Basic graph storage
 Phase 7: Agent context (partial)
 Should Have - 15 days
@@ -580,7 +580,7 @@ Nice to Have - 11 days
 Phase 9: Performance optimization
 Phase 10: Documentation polish
 Milestone Checklist
- Milestone 1 (Day 12): GUN service + state store working
+ Milestone 1 (Day 12): LoomMesh service + state store working
  Milestone 2 (Day 17): Multi-node sync tested
  Milestone 3 (Day 23): Graph storage + basic queries
  Milestone 4 (Day 30): Query engine complete
@@ -591,7 +591,7 @@ Milestone Checklist
  Milestone 9 (Day 51): Documentation complete
 Risk Mitigation
 Risk	Mitigation	TODO
-GUN performance issues	Benchmark early, fallback to Redis	TODO-043
+LoomMesh performance issues	Benchmark early, fallback to Redis	TODO-043
 Merge conflicts complex	Start simple (LWW), add CRDT later	TODO-030
 Azure costs high	Use dev environment, optimize storage	TODO-038
 Query engine slow	Add caching, indexes early	TODO-041

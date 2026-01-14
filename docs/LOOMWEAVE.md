@@ -1,6 +1,6 @@
 # LoomWeave: Distributed Graph Database
 
-**LoomWeave** is Loom's distributed graph database built on GUN, providing:
+**LoomWeave** is Loom's distributed graph database built on LoomMesh, providing:
 - **Distributed state sync** for actors across nodes
 - **Git-like versioning** with branches, commits, and merges
 - **Graph query engine** with pattern matching and traversal
@@ -21,7 +21,7 @@
 └─────────────────┼──────────────────────────────┘
                   │
 ┌─────────────────▼──────────────────────────────┐
-│              GUN Service Layer                  │
+│              LoomMesh Service Layer                  │
 │  ┌──────────────────────────────────┐          │
 │  │  Distributed Sync & Persistence  │          │
 │  │  - Real-time state replication   │          │
@@ -33,7 +33,7 @@
 
 ## Components
 
-### 1. GUN Service (`src/services/gun/`)
+### 1. LoomMesh Service (`src/services/gun/`)
 - **GunService**: Lifecycle management, shared instance
 - **GunMetrics**: Monitoring and observability
 - **GunConfig**: Azure-aware configuration
@@ -63,7 +63,7 @@
 ### Distributed Actor State
 
 ```typescript
-// Configure GUN service
+// Configure LoomMesh service
 const gunService = new GunService({
   peers: ['http://relay-1:8765', 'http://relay-2:8765'],
   file: './data/gun',
@@ -72,7 +72,7 @@ const gunService = new GunService({
 
 await gunService.start()
 
-// Create state store backed by GUN
+// Create state store backed by LoomMesh
 const stateStore = new GunStateStore(gunService.getGun())
 
 // Actor state automatically syncs across nodes!
@@ -134,7 +134,7 @@ if (result.conflicts.length > 0) {
 ## Deployment (Azure Container Apps)
 
 ```yaml
-# Gun relay container
+# LoomMesh relay container
 - name: gun-relay
   image: gundb/gun:latest
   env:
@@ -175,7 +175,7 @@ See [TODO List](../ComprehensiveGraphDBAndSharedStateImplementation%20TODO%20Lis
 ## Minimal Code, Maximum Functionality
 
 LoomWeave achieves full functionality with ~12k lines by:
-- ✅ Leveraging GUN for storage/sync (~5k lines saved)
+- ✅ Leveraging LoomMesh for storage/sync (~5k lines saved)
 - ✅ Using Immer patches for git diffs (~1k lines saved)
 - ✅ Reusing Actor infrastructure (~2k lines saved)
 - ✅ TypeScript for compile-time safety
