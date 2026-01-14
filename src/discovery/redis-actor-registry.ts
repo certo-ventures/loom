@@ -224,7 +224,7 @@ export class RedisActorRegistry implements ActorRegistry {
       const registration = await this.get(actorId)
       if (registration) {
         await this.publishEvent({
-          type: 'actor:status-changed',
+          type: 'actor:status_changed',
           actorId,
           actorType: registration.actorType,
           workerId: registration.workerId,

@@ -404,13 +404,13 @@ describe.skipIf(SKIP_INTEGRATION_TESTS)('Production Adapters Integration', () =>
     })
   })
 
-  describe('Cosmos DB Adapters', () => {
+  describe.skipIf(!cosmosConfig)('Cosmos DB Adapters', () => {
     let cosmosClient: CosmosClient
     let stateStore: CosmosStateStore
     let traceStore: CosmosTraceStore
     let secretsStore: CosmosSecretsStore
     
-    if (!cosmosConfig) throw new ConfigurationError('Cosmos config required for integration tests')
+    if (!cosmosConfig) return
     
     const endpoint = cosmosConfig.endpoint
     const key = process.env.COSMOS_KEY || 'C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=='
