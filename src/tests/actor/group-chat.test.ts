@@ -25,7 +25,7 @@ class TestActor extends Actor {
   }
 
   async execute(_input: unknown): Promise<void> {
-    this.updateState({ response: this.response })
+    this.updateState(draft => { draft.response = this.response })
   }
 }
 

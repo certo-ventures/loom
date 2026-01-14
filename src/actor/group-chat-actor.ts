@@ -81,7 +81,7 @@ export class GroupChatActor extends Actor {
     }
     
     const result = await this.runGroupChat(chatInput)
-    this.updateState({ result })
+    this.updateState(draft => { draft.result = result })
   }
 
   /**

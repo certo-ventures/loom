@@ -17,9 +17,9 @@ class CounterActor extends Actor {
     const current = (this.state.count as number) || 0
     
     if (operation === 'increment') {
-      this.updateState({ count: current + (value || 1) })
+      this.updateState(draft => { draft.count = current + (value || 1) })
     } else if (operation === 'reset') {
-      this.updateState({ count: 0 })
+      this.updateState(draft => { draft.count = 0 })
     }
   }
 }

@@ -103,10 +103,10 @@ describe('Workflow Real Integration Tests (FULL STACK)', () => {
         const currentCount = (this.state.count as number) || 0;
         
         // REAL state update
-        this.updateState({ 
-          count: currentCount + increment,
-          lastUpdate: new Date().toISOString(),
-        });
+        this.updateState(draft => {
+          draft.count = currentCount + increment
+          draft.lastUpdate = new Date().toISOString()
+        })
       }
 
       getCount(): number {
@@ -194,11 +194,11 @@ describe('Workflow Real Integration Tests (FULL STACK)', () => {
           ? data.map((item: any) => typeof item === 'string' ? item.toUpperCase() : item * 2)
           : data;
 
-        this.updateState({ 
-          processed,
-          processedAt: new Date().toISOString(),
-          itemCount: Array.isArray(data) ? data.length : 1,
-        });
+        this.updateState(draft => {
+          draft.processed = processed
+          draft.processedAt = new Date().toISOString()
+          draft.itemCount = Array.isArray(data) ? data.length : 1
+        })
       }
 
       getProcessed(): any {
@@ -298,10 +298,10 @@ describe('Workflow Real Integration Tests (FULL STACK)', () => {
         const { task } = input;
         const tasksCompleted = ((this.state.tasksCompleted as number) || 0) + 1;
         
-        this.updateState({ 
-          lastTask: task,
-          tasksCompleted,
-        });
+        this.updateState(draft => {
+          draft.lastTask = task
+          draft.tasksCompleted = tasksCompleted
+        })
       }
 
       getTasksCompleted(): number {
@@ -442,7 +442,7 @@ describe('Workflow Real Integration Tests (FULL STACK)', () => {
           throw new Error('Actor execution failed!');
         }
         
-        this.updateState({ success: true });
+        this.updateState(draft => { draft.success = true })
       }
     }
 

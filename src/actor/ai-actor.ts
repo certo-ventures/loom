@@ -55,9 +55,9 @@ export abstract class AIActor extends Actor {
     this.llm = new UnifiedLLM(config)
     
     // Store config in state for actor recovery/replay
-    this.updateState({
-      _llmConfig: config,
-      _llmConfigKey: configKey,
+    this.updateState(draft => {
+      draft._llmConfig = config
+      draft._llmConfigKey = configKey
     })
   }
 
@@ -70,8 +70,8 @@ export abstract class AIActor extends Actor {
     this.toolExecutor = new ToolExecutor(this.toolRegistry)
     
     // Store config in state for actor recovery/replay
-    this.updateState({
-      _llmConfig: config,
+    this.updateState(draft => {
+      draft._llmConfig = config
     })
   }
   
@@ -106,15 +106,15 @@ export abstract class AIActor extends Actor {
     const duration = Date.now() - startTime
 
     // Journal the LLM call for replay and audit
-    this.updateState({
-      _lastLLMCall: {
+    this.updateState(draft => {
+      draft._lastLLMCall = {
         timestamp: new Date().toISOString(),
         messages,
         response: response.content,
         usage: response.usage,
         model: response.model,
         duration,
-      },
+      }
     })
 
     return response.content
@@ -134,14 +134,14 @@ export abstract class AIActor extends Actor {
     const response = await this.llm.chat(messages, options)
 
     // Journal the LLM call
-    this.updateState({
-      _lastLLMCall: {
+    this.updateState(draft => {
+      draft._lastLLMCall = {
         timestamp: new Date().toISOString(),
         messages,
         response: response.content,
         usage: response.usage,
         model: response.model,
-      },
+      }
     })
 
     return response
@@ -165,8 +165,8 @@ export abstract class AIActor extends Actor {
     const duration = Date.now() - startTime
 
     // Journal the completed stream
-    this.updateState({
-      _lastLLMCall: {
+    this.updateState(draft => {
+      draft._lastLLMCall = {
         timestamp: new Date().toISOString(),
         messages,
         response: response.content,
@@ -174,7 +174,7 @@ export abstract class AIActor extends Actor {
         model: response.model,
         duration,
         streamed: true,
-      },
+      }
     })
 
     return response.content
@@ -244,15 +244,15 @@ export abstract class AIActor extends Actor {
       const response = await provider.chatWithTools(currentMessages, tools, options)
       
       // Journal the call
-      this.updateState({
-        _lastToolCall: {
+      this.updateState(draft => {
+        draft._lastToolCall = {
           timestamp: new Date().toISOString(),
           round,
           messages: currentMessages,
           response: response.content,
           toolCalls: response.toolCalls,
           usage: response.usage,
-        },
+        }
       })
       
       // If no tool calls, return final response
@@ -313,12 +313,12 @@ export abstract class AIActor extends Actor {
     const result = await this.toolExecutor.execute(toolCall)
     
     // Journal tool execution
-    this.updateState({
-      _lastManualToolCall: {
+    this.updateState(draft => {
+      draft._lastManualToolCall = {
         timestamp: new Date().toISOString(),
         toolCall,
         result,
-      },
+      }
     })
     
     if (!result.success) {
@@ -350,8 +350,8 @@ export abstract class AIActor extends Actor {
     this.registerTools(actorTools)
     
     // Journal registered actors
-    this.updateState({
-      _registeredActors: actorRegistry.getStats(),
+    this.updateState(draft => {
+      draft._registeredActors = actorRegistry.getStats()
     })
   }
 

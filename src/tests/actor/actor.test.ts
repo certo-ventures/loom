@@ -8,19 +8,22 @@ class TestActor extends Actor {
 
   async execute(input: unknown) {
     // Update state
-    this.updateState({ count: 1 })
+    this.updateState(draft => { draft.count = 1 })
 
     // Call an activity
     const result = await this.callActivity('test-activity', { value: 42 })
-    this.updateState({ results: [result] })
+    this.updateState(draft => { draft.results = [result] })
   }
 }
 
 class EventActor extends Actor {
   async execute() {
-    this.updateState({ status: 'waiting' })
+    this.updateState(draft => { draft.status = 'waiting' })
     const event = await this.waitForEvent<{ value: number }>('user_input')
-    this.updateState({ status: 'completed', value: event.value })
+    this.updateState(draft => {
+      draft.status = 'completed'
+      draft.value = event.value
+    })
   }
 }
 

@@ -195,10 +195,10 @@ class WeatherAssistantActor extends AIActor {
     
     console.log(`\n💬 Assistant:`, response)
     
-    this.updateState({
-      location,
-      response,
-      timestamp: new Date().toISOString(),
+    this.updateState(draft => {
+      draft.location = location
+      draft.response = response
+      draft.timestamp = new Date().toISOString()
     })
   }
 }
@@ -238,10 +238,10 @@ class LoanOfficerActor extends AIActor {
     
     console.log(`\n💬 Officer:`, response)
     
-    this.updateState({
-      request,
-      response,
-      timestamp: new Date().toISOString(),
+    this.updateState(draft => {
+      draft.request = request
+      draft.response = response
+      draft.timestamp = new Date().toISOString()
     })
   }
 }
@@ -281,10 +281,10 @@ class CustomerSupportActor extends AIActor {
     
     console.log(`\n💬 Support:`, response)
     
-    this.updateState({
-      query,
-      response,
-      timestamp: new Date().toISOString(),
+    this.updateState(draft => {
+      draft.query = query
+      draft.response = response
+      draft.timestamp = new Date().toISOString()
     })
   }
 }

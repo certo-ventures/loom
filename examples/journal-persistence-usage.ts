@@ -34,7 +34,11 @@ class OrderActor extends Actor {
     const { action, orderId, items } = input as any
     
     if (action === 'create') {
-      this.updateState({ orderId, items, status: 'pending' })
+      this.updateState(draft => {
+        draft.orderId = orderId
+        draft.items = items
+        draft.status = 'pending'
+      })
       
       // Call activity to process payment
       const paymentResult = await this.callActivity('processPayment', {
@@ -42,7 +46,10 @@ class OrderActor extends Actor {
         amount: items.reduce((sum: number, i: any) => sum + i.price, 0),
       })
       
-      this.updateState({ paymentId: paymentResult, status: 'paid' })
+      this.updateState(draft => {
+        draft.paymentId = paymentResult
+        draft.status = 'paid'
+      })
     }
   }
 }

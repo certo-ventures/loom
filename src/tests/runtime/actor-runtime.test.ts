@@ -49,7 +49,7 @@ class TestActor extends Actor {
     return { count: 0 }
   }
   async execute() {
-    this.updateState({ count: 1 })
+    this.updateState(draft => { draft.count = 1 })
   }
 }
 

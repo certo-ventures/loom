@@ -28,23 +28,29 @@ class OrderActor extends Actor {
   }
 
   async execute(input: any): Promise<any> {
-    this.updateState({ 
-      orderId: this.context.actorId,
-      status: 'created',
-      total: input.total || 0
+    this.updateState(draft => {
+      draft.orderId = this.context.actorId
+      draft.status = 'created'
+      draft.total = input.total || 0
     })
     return { orderId: this.context.actorId }
   }
 
   // Signal method - updates state
   async approveOrder() {
-    this.updateState({ status: 'approved', approvedAt: Date.now() })
+    this.updateState(draft => {
+      draft.status = 'approved'
+      draft.approvedAt = Date.now()
+    })
     this.recordDecision({ type: 'order-approved' })
   }
 
   // Signal method - updates state
   async cancelOrder(reason: string) {
-    this.updateState({ status: 'cancelled', cancelReason: reason })
+    this.updateState(draft => {
+      draft.status = 'cancelled'
+      draft.cancelReason = reason
+    })
   }
 
   // Query method - read only
@@ -63,7 +69,10 @@ const CounterActor = withTemporalFeatures(class extends Actor {
 
   async execute(input: any): Promise<any> {
     this.count++
-    this.updateState({ count: this.count, lastUpdated: Date.now() })
+    this.updateState(draft => {
+      draft.count = this.count
+      draft.lastUpdated = Date.now()
+    })
 
     // Continue-as-New after 10 increments
     if (this.count >= 10 && input.enableContinue) {
@@ -109,11 +118,11 @@ const SearchableActor = withTemporalFeatures(class extends Actor {
   }
 
   async execute(input: any): Promise<any> {
-    this.updateState({
-      name: input.name,
-      category: input.category,
-      price: input.price,
-      active: true
+    this.updateState(draft => {
+      draft.name = input.name
+      draft.category = input.category
+      draft.price = input.price
+      draft.active = true
     })
 
     await this.updateSearchAttributes({
@@ -134,10 +143,10 @@ const AsyncTaskActor = withTemporalFeatures(class extends Actor {
       timeout: 60000
     })
 
-    this.updateState({
-      taskToken,
-      status: 'pending',
-      amount: input.amount
+    this.updateState(draft => {
+      draft.taskToken = taskToken
+      draft.status = 'pending'
+      draft.amount = input.amount
     })
 
     return { taskToken, status: 'pending' }
@@ -525,7 +534,10 @@ describe('Temporal Features', () => {
         }
 
         async execute(input: any): Promise<any> {
-          this.updateState({ status: 'running', priority: input.priority || 1 })
+          this.updateState(draft => {
+            draft.status = 'running'
+            draft.priority = input.priority || 1
+          })
           
           await (this as any).updateSearchAttributes({
             status: 'running',
@@ -536,7 +548,7 @@ describe('Temporal Features', () => {
         }
 
         async pauseExecution() {
-          this.updateState({ status: 'paused' })
+          this.updateState(draft => { draft.status = 'paused' })
           await (this as any).updateSearchAttributes({ status: 'paused' })
         }
 

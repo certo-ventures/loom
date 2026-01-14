@@ -28,11 +28,11 @@ class CounterActor extends Actor {
     const current = (this.state.count as number) || 0
     
     if (operation === 'increment') {
-      this.updateState({ count: current + (value || 1) })
+      this.updateState(draft => { draft.count = current + (value || 1) })
     } else if (operation === 'decrement') {
-      this.updateState({ count: current - (value || 1) })
+      this.updateState(draft => { draft.count = current - (value || 1) })
     } else if (operation === 'reset') {
-      this.updateState({ count: 0 })
+      this.updateState(draft => { draft.count = 0 })
     }
   }
 }
@@ -45,24 +45,30 @@ class OrderActor extends Actor {
     const { action, data } = input as { action: string; data?: any }
     
     if (action === 'create_order') {
-      this.updateState({
-        orderId: data.orderId,
-        items: data.items,
-        total: data.total,
-        status: 'pending',
-        createdAt: Date.now(),
+      this.updateState(draft => {
+        draft.orderId = data.orderId
+        draft.items = data.items
+        draft.total = data.total
+        draft.status = 'pending'
+        draft.createdAt = Date.now()
       })
     } else if (action === 'add_item') {
       const items = (this.state.items as any[]) || []
       const total = (this.state.total as number) || 0
-      this.updateState({
-        items: [...items, data.item],
-        total: total + data.item.price,
+      this.updateState(draft => {
+        draft.items = [...items, data.item]
+        draft.total = total + data.item.price
       })
     } else if (action === 'confirm') {
-      this.updateState({ status: 'confirmed', confirmedAt: Date.now() })
+      this.updateState(draft => {
+        draft.status = 'confirmed'
+        draft.confirmedAt = Date.now()
+      })
     } else if (action === 'ship') {
-      this.updateState({ status: 'shipped', shippedAt: Date.now() })
+      this.updateState(draft => {
+        draft.status = 'shipped'
+        draft.shippedAt = Date.now()
+      })
     }
   }
 }

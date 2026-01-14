@@ -11,7 +11,7 @@ class TestActor extends Actor {
     
     if (operation === 'increment') {
       const current = (this.state.count as number) || 0
-      this.updateState({ count: current + value })
+      this.updateState(draft => { draft.count = current + value })
     }
   }
 }

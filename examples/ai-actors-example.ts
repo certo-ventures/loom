@@ -60,10 +60,10 @@ ${history.map((h: any) => `${h.role}: ${h.message}`).join('\n')}`,
       { role: 'assistant', message: response, timestamp: new Date().toISOString() }
     )
 
-    this.updateState({
-      conversationHistory: history.slice(-10), // Keep last 10 messages
-      lastResponse: response,
-      customerId: query.customerId,
+    this.updateState(draft => {
+      draft.conversationHistory = history.slice(-10) // Keep last 10 messages
+      draft.lastResponse = response
+      draft.customerId = query.customerId
     })
   }
 }
@@ -139,19 +139,18 @@ Provide your underwriting decision.`,
     const decision = analysis.toLowerCase().includes('approve') ? 'APPROVED' : 'DECLINED'
 
     // Update state
-    const decisions = (this.state.decisions as any[]) || []
-    decisions.push({
-      applicantId: application.applicantId,
-      decision,
-      analysis,
-      dti,
-      timestamp: new Date().toISOString(),
-    })
-
-    this.updateState({
-      decisions,
-      totalProcessed: (this.state.totalProcessed as number) + 1,
-      lastDecision: decision,
+    this.updateState(draft => {
+      const decisions = (draft.decisions as any[]) || []
+      decisions.push({
+        applicantId: application.applicantId,
+        decision,
+        analysis,
+        dti,
+        timestamp: new Date().toISOString(),
+      })
+      draft.decisions = decisions
+      draft.totalProcessed = (draft.totalProcessed as number || 0) + 1
+      draft.lastDecision = decision
     })
   }
 
@@ -198,9 +197,11 @@ export class StreamingChatActor extends AIActor {
       }
     )
 
-    this.updateState({
-      lastMessage: userMessage,
-      lastResponse: response,
+    this.updateState(draft => {
+      draft.lastMessage = userMessage
+      draft.lastResponse = response
+      draft.responseLength = response.length
+    })
       responseLength: response.length,
     })
   }

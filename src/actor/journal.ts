@@ -1,8 +1,10 @@
+import type { Patch } from 'immer'
+
 /**
  * Journal entry types for deterministic replay
  */
 export type JournalEntry =
-  | { type: 'state_updated'; state: Record<string, unknown> }
+  | { type: 'state_patches'; patches: Patch[]; inversePatches: Patch[]; timestamp: number }
   | { type: 'activity_scheduled'; activityId: string; name: string; input: unknown }
   | { type: 'activity_completed'; activityId: string; result: unknown }
   | { type: 'activity_failed'; activityId: string; error: string }

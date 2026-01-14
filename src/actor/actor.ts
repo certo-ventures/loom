@@ -17,6 +17,7 @@ import { ObservabilityMetrics } from '../memory/graph/observability-metrics'
 import type { GraphStorage } from '../memory/graph/types'
 import type { Message } from '../types'
 import { ConfigurationError } from '../config/environment'
+import { produce, produceWithPatches, applyPatches, enablePatches } from 'immer'
 import { 
   type DecisionTrace, 
   type DecisionInput, 
@@ -28,9 +29,12 @@ import {
   DEFAULT_DECISION_TRACE_CONFIG 
 } from './decision-trace'
 
+// Enable Immer patches globally
+enablePatches()
+
 /**
  * Base Actor class - all actors extend this
- * Uses journal-based execution for deterministic replay
+ * Uses journal-based execution with Immer patches for deterministic replay
  */
 export abstract class Actor {
   protected state: Record<string, unknown>
@@ -170,9 +174,12 @@ export abstract class Actor {
             stateCopy = { ...this.state }
           }
           
+          // Store full state as a single patch for simpleState compatibility
           const entry: JournalEntry = {
-            type: 'state_updated',
-            state: stateCopy,
+            type: 'state_patches',
+            patches: [{ op: 'replace', path: [], value: stateCopy }] as any,
+            inversePatches: [{ op: 'replace', path: [], value: this.state }] as any,
+            timestamp: Date.now()
           }
           this.journal.entries.push(entry)
           this.persistJournalEntry(entry).catch(() => {}) // Don't block on persistence
@@ -370,51 +377,56 @@ export abstract class Actor {
   }
 
   /**
-   * Update actor state (plain JSON)
+   * Update actor state using Immer for immutable updates with patch tracking
+   * 
+   * @example
+   * ```typescript
+   * // Deep updates work naturally
+   * this.updateState(draft => {
+   *   draft.user.profile.name = 'Alice'
+   *   draft.orders.push({ id: '123', total: 99.99 })
+   *   draft.metadata.lastModified = Date.now()
+   * })
+   * ```
    */
-  protected updateState(updates: Record<string, unknown>): void {
-    this.state = { ...this.state, ...updates }
+  protected updateState(updater: (draft: Record<string, unknown>) => void): void {
+    const [nextState, patches, inversePatches] = produceWithPatches(
+      this.state,
+      updater
+    )
     
-    if (!this.isReplaying) {
-      const entryIndex = this.journal.entries.length
-      
-      // Deep copy state to prevent mutations
-      let stateCopy: Record<string, unknown>
-      try {
-        stateCopy = JSON.parse(JSON.stringify(this.state))
-      } catch (error) {
-        console.warn('Failed to deep copy state in updateState, using shallow copy:', error)
-        stateCopy = { ...this.state }
-      }
-      
+    this.state = nextState
+    
+    if (!this.isReplaying && patches.length > 0) {
       const entry: JournalEntry = {
-        type: 'state_updated',
-        state: stateCopy,
+        type: 'state_patches',
+        patches,
+        inversePatches,
+        timestamp: Date.now()
       }
+      
       this.journal.entries.push(entry)
       
       // Persist entry asynchronously
       this.persistJournalEntry(entry).catch(() => {})
       
       // Auto-compact if journal gets too large and not recently compacted
-      // Cache the threshold to avoid repeated config calls in hot path
       if (this.cachedCompactionThreshold === undefined) {
         this.cachedCompactionThreshold = this.getInfrastructureConfig().journalCompactionThreshold || 100
       }
       const compactionThreshold = this.cachedCompactionThreshold
       
       if (compactionThreshold > 0 && this.journal.entries.length >= compactionThreshold && !this.isCompacting) {
-        // Check if enough time passed since last compaction (avoid rapid re-compaction)
         const minTimeBetweenCompactions = 5000 // 5 seconds
         if (Date.now() - this.lastCompactionTime > minTimeBetweenCompactions) {
-          this.compactJournal().catch(() => {}) // Don't block on compaction
+          this.compactJournal().catch(() => {})
         }
       }
       
-      // Trace state update (legacy tracer)
-      this.tracer?.stateUpdated(updates)
+      // Trace state update with patch information
+      this.tracer?.stateUpdated({ patchCount: patches.length, operations: patches.map(p => p.op) })
       
-      // Emit observability trace event with reference to journal entry
+      // Emit observability trace event with patch metadata
       if (this.observabilityTracer && this.context.trace) {
         this.observabilityTracer.emit({
           trace_id: this.context.trace.trace_id,
@@ -425,13 +437,13 @@ export abstract class Actor {
           refs: {
             journal_entry: {
               actor_id: this.context.actorId,
-              entry_index: entryIndex,
-              entry_type: 'state_updated'
+              entry_index: this.journal.entries.length - 1,
+              entry_type: 'state_patches'
             }
           },
           metadata: {
             actor_type: this.constructor.name,
-            changed_keys: Object.keys(updates)
+            patch_count: patches.length
           }
         }).catch(() => {}) // Silent failure - don't break actor execution
       }
@@ -450,7 +462,7 @@ export abstract class Actor {
         const entry = this.journal.entries[this.journal.cursor]
         
         // Skip state updates
-        if (entry.type === 'state_updated') {
+        if (entry.type === 'state_patches') {
           this.journal.cursor++
           continue
         }
@@ -565,7 +577,7 @@ export abstract class Actor {
         const entry = this.journal.entries[this.journal.cursor]
         
         // Skip state updates
-        if (entry.type === 'state_updated') {
+        if (entry.type === 'state_patches') {
           this.journal.cursor++
           continue
         }
@@ -666,7 +678,7 @@ export abstract class Actor {
   }
 
   /**
-   * Replay execution from journal
+   * Replay execution from journal using Immer patches
    */
   private async replay(): Promise<void> {
     this.isReplaying = true
@@ -676,17 +688,10 @@ export abstract class Actor {
     // Reset state to default
     this.state = this.getDefaultState()
 
-    // Apply all state_updated entries first to restore state
+    // Apply all state patches to reconstruct state
     for (const entry of this.journal.entries) {
-      if (entry.type === 'state_updated') {
-        // Deep copy to prevent mutations from affecting journal
-        try {
-          this.state = JSON.parse(JSON.stringify(entry.state))
-        } catch (error) {
-          // Fallback to shallow copy if JSON fails
-          console.warn('Failed to deep copy state during replay:', error)
-          this.state = { ...entry.state }
-        }
+      if (entry.type === 'state_patches') {
+        this.state = applyPatches(this.state, entry.patches)
       }
     }
 
@@ -823,6 +828,50 @@ export abstract class Actor {
     } finally {
       this.isCompacting = false
     }
+  }
+
+  /**
+   * Compensate (undo) the last state change using inverse patches
+   * Useful for Saga pattern and error recovery
+   * 
+   * @example
+   * ```typescript
+   * try {
+   *   this.updateState(draft => { draft.balance -= 100 })
+   *   await externalAPI.charge()
+   * } catch (error) {
+   *   await this.compensateLastStateChange() // Undo balance change
+   * }
+   * ```
+   */
+  protected async compensateLastStateChange(): Promise<void> {
+    // Find the most recent state_patches entry
+    for (let i = this.journal.entries.length - 1; i >= 0; i--) {
+      const entry = this.journal.entries[i]
+      
+      if (entry.type === 'state_patches') {
+        // Apply inverse patches to undo the change
+        this.state = applyPatches(this.state, entry.inversePatches)
+        
+        // Remove the compensated entry from journal
+        this.journal.entries.splice(i, 1)
+        
+        // Persist the compensation if journal store configured
+        if (this.journalStore) {
+          // In a production system, you'd persist a compensation event
+          // For now, just persist the updated journal
+          await this.journalStore.trimEntries(
+            this.context.actorId,
+            i
+          ).catch(() => {})
+        }
+        
+        return
+      }
+    }
+    
+    // No state changes to compensate
+    console.warn(`No state changes to compensate for actor ${this.context.actorId}`)
   }
 
   /**

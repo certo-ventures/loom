@@ -14,15 +14,15 @@ export class CounterActor extends Actor {
 
     switch (input.operation) {
       case 'increment':
-        this.updateState({ count: current + (input.value || 1) })
+        this.updateState(draft => { draft.count = current + (input.value || 1) })
         break
       
       case 'decrement':
-        this.updateState({ count: current - (input.value || 1) })
+        this.updateState(draft => { draft.count = current - (input.value || 1) })
         break
       
       case 'reset':
-        this.updateState({ count: 0 })
+        this.updateState(draft => { draft.count = 0 })
         break
     }
   }

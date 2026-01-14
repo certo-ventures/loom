@@ -143,11 +143,11 @@ Respond with ONLY the team member name, nothing else.`,
     this.delegations.set(taskId, delegation)
 
     // Update state
-    this.updateState({
-      delegations: {
+    this.updateState(draft => {
+      draft.delegations = {
         ...this.state.delegations as Record<string, Delegation>,
         [taskId]: delegation,
-      },
+      }
     })
 
     // Send message to team member actor
@@ -162,11 +162,11 @@ Respond with ONLY the team member name, nothing else.`,
 
     // Update delegation status
     delegation.status = 'in-progress'
-    this.updateState({
-      delegations: {
+    this.updateState(draft => {
+      draft.delegations = {
         ...this.state.delegations as Record<string, Delegation>,
         [taskId]: delegation,
-      },
+      }
     })
 
     // Wait for response
@@ -208,11 +208,11 @@ Respond with ONLY the team member name, nothing else.`,
     delegation.result = result
     delegation.error = error
 
-    this.updateState({
-      delegations: {
+    this.updateState(draft => {
+      draft.delegations = {
         ...this.state.delegations as Record<string, Delegation>,
         [taskId]: delegation,
-      },
+      }
     })
   }
 

@@ -6,7 +6,7 @@ import type { StreamChunk } from '../../streaming/types'
 // Test actor with default streaming (wraps execute)
 class SimpleActor extends Actor {
   async execute(input: unknown): Promise<void> {
-    this.updateState({ result: `Processed: ${input}` })
+    this.updateState(draft => { draft.result = `Processed: ${input}` })
   }
 }
 

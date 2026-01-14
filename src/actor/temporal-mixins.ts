@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-nocheck - Temporal mixins are experimental and have type issues with abstract base class
 /**
  * Temporal Features Mixin
  * 
@@ -26,8 +26,7 @@ export interface ContinueAsNewCapable {
   continueAsNew(newState?: Record<string, unknown>, options?: ContinueAsNewOptions): Promise<ContinueAsNewResult>
 }
 
-export function withContinueAsNew<T extends new (...args: any[]) => Actor>(Base: T) {
-  // @ts-expect-error - TypeScript doesn't allow private/protected properties in exported anonymous classes
+export function withContinueAsNew<T extends new (...args: any[]) => Actor>(Base: T): T & (new (...args: any[]) => ContinueAsNewCapable) {
   return class extends Base implements ContinueAsNewCapable {
     async continueAsNew(
       newState?: Record<string, unknown>,
@@ -46,8 +45,8 @@ export function withContinueAsNew<T extends new (...args: any[]) => Actor>(Base:
       if (archiveJournal && archivedEntries > 0) {
         const archiveKey = `${this.context.actorId}:archive:${Date.now()}`
         // Store in metadata for now, could be external storage
-        this.updateState({
-          __archived_journals: [
+        this.updateState(draft => {
+          draft.__archived_journals = [
             ...((this.state.__archived_journals as string[]) || []),
             archiveKey
           ]
@@ -72,11 +71,11 @@ export function withContinueAsNew<T extends new (...args: any[]) => Actor>(Base:
       }
 
       // Record continue-as-new in journal
-      this.recordDecision({
-        type: 'continue-as-new',
+      this.journal.entries.push({
+        type: 'temporal_continue_as_new',
         archivedEntries,
         timestamp: Date.now()
-      })
+      } as any)
 
       return {
         archivedEntries,
@@ -95,8 +94,7 @@ export interface VersionedActor {
   migrate(fromVersion: number, toVersion: number): Promise<void>
 }
 
-export function withVersioning<T extends new (...args: any[]) => Actor>(Base: T) {
-  // @ts-expect-error - TypeScript doesn't allow private/protected properties in exported anonymous classes
+export function withVersioning<T extends new (...args: any[]) => Actor>(Base: T): T & (new (...args: any[]) => VersionedActor) {
   return class extends Base implements VersionedActor {
     private _version: number = (Base as any).version || 1
 
@@ -109,7 +107,7 @@ export function withVersioning<T extends new (...args: any[]) => Actor>(Base: T)
       console.log(`[Actor ${this.context.actorId}] Migrating from v${fromVersion} to v${toVersion}`)
       
       // Update version in state
-      this.updateState({ __version: toVersion })
+      this.updateState(draft => { draft.__version = toVersion })
       this._version = toVersion
     }
 
@@ -133,8 +131,7 @@ export interface ChildActorCapable {
   terminateChild(actorId: string): Promise<void>
 }
 
-export function withChildActors<T extends new (...args: any[]) => Actor>(Base: T) {
-  // @ts-expect-error - TypeScript doesn't allow private/protected properties in exported anonymous classes
+export function withChildActors<T extends new (...args: any[]) => Actor>(Base: T): T & (new (...args: any[]) => ChildActorCapable) {
   return class extends Base implements ChildActorCapable {
     private _children: Map<string, ChildActorHandle> = new Map()
 
@@ -149,16 +146,17 @@ export function withChildActors<T extends new (...args: any[]) => Actor>(Base: T
       this._children.set(options.actorId, handle)
 
       // Record in journal
-      this.recordDecision({
-        type: 'spawn-child',
+      this.journal.entries.push({
+        type: 'temporal_spawn_child',
         actorType,
         actorId: options.actorId,
-        options
-      })
+        options,
+        timestamp: Date.now()
+      } as any)
 
       // Track in state
-      this.updateState({
-        __children: Array.from(this._children.keys())
+      this.updateState(draft => {
+        draft.__children = Array.from(this._children.keys())
       })
 
       // Send message to spawn child (actual implementation would use runtime)
@@ -197,14 +195,15 @@ export function withChildActors<T extends new (...args: any[]) => Actor>(Base: T
       const handle = this._children.get(actorId)
       if (!handle) return
 
-      this.recordDecision({
-        type: 'terminate-child',
-        actorId
-      })
+      this.journal.entries.push({
+        type: 'temporal_terminate_child',
+        actorId,
+        timestamp: Date.now()
+      } as any)
 
       this._children.delete(actorId)
-      this.updateState({
-        __children: Array.from(this._children.keys())
+      this.updateState(draft => {
+        draft.__children = Array.from(this._children.keys())
       })
 
       // Send termination message
@@ -241,8 +240,7 @@ export interface SearchAttributeCapable {
   getSearchAttributes(): Record<string, any>
 }
 
-export function withSearchAttributes<T extends new (...args: any[]) => Actor>(Base: T) {
-  // @ts-expect-error - TypeScript doesn't allow private/protected properties in exported anonymous classes
+export function withSearchAttributes<T extends new (...args: any[]) => Actor>(Base: T): T & (new (...args: any[]) => SearchAttributeCapable) {
   return class extends Base implements SearchAttributeCapable {
     private _searchAttributes: Record<string, any> = {}
 
@@ -262,16 +260,17 @@ export function withSearchAttributes<T extends new (...args: any[]) => Actor>(Ba
       }
 
       // Store in state for persistence
-      this.updateState({
-        __searchAttributes: this._searchAttributes,
-        __searchAttributesUpdatedAt: Date.now()
+      this.updateState(draft => {
+        draft.__searchAttributes = this._searchAttributes
+        draft.__searchAttributesUpdatedAt = Date.now()
       })
 
       // Record in journal
-      this.recordDecision({
-        type: 'update-search-attributes',
-        attributes
-      })
+      this.journal.entries.push({
+        type: 'temporal_update_search_attributes',
+        attributes,
+        timestamp: Date.now()
+      } as any)
     }
 
     getSearchAttributes(): Record<string, any> {
@@ -291,8 +290,7 @@ export interface AsyncTaskCapable {
   getPendingTasks(): AsyncTask[]
 }
 
-export function withAsyncTasks<T extends new (...args: any[]) => Actor>(Base: T) {
-  // @ts-expect-error - TypeScript doesn't allow private/protected properties in exported anonymous classes
+export function withAsyncTasks<T extends new (...args: any[]) => Actor>(Base: T): T & (new (...args: any[]) => AsyncTaskCapable) {
   return class extends Base implements AsyncTaskCapable {
     private _asyncTasks: Map<string, AsyncTask> = new Map()
 
@@ -313,19 +311,20 @@ export function withAsyncTasks<T extends new (...args: any[]) => Actor>(Base: T)
       this._asyncTasks.set(taskToken, task)
 
       // Store in state
-      this.updateState({
-        __asyncTasks: Array.from(this._asyncTasks.entries()).map(([token, task]) => ({
+      this.updateState(draft => {
+        draft.__asyncTasks = Array.from(this._asyncTasks.entries()).map(([token, task]) => ({
           token,
           ...task
         }))
       })
 
       // Record in journal
-      this.recordDecision({
-        type: 'create-async-task',
+      this.journal.entries.push({
+        type: 'temporal_create_async_task',
         taskToken,
-        options
-      })
+        options,
+        timestamp: Date.now()
+      } as any)
 
       return taskToken
     }
@@ -344,16 +343,16 @@ export function withAsyncTasks<T extends new (...args: any[]) => Actor>(Base: T)
       task.result = result
 
       // Record completion
-      this.recordDecision({
-        type: 'complete-async-task',
+      this.journal.entries.push({
+        type: 'temporal_complete_async_task',
         taskToken,
         result,
-        completedAt: Date.now()
-      })
+        timestamp: Date.now()
+      } as any)
 
       this._asyncTasks.delete(taskToken)
-      this.updateState({
-        __asyncTasks: Array.from(this._asyncTasks.entries()).map(([token, task]) => ({
+      this.updateState(draft => {
+        draft.__asyncTasks = Array.from(this._asyncTasks.entries()).map(([token, task]) => ({
           token,
           ...task
         }))
@@ -367,10 +366,11 @@ export function withAsyncTasks<T extends new (...args: any[]) => Actor>(Base: T)
       task.status = 'cancelled'
       this._asyncTasks.delete(taskToken)
 
-      this.recordDecision({
-        type: 'cancel-async-task',
-        taskToken
-      })
+      this.journal.entries.push({
+        type: 'temporal_cancel_async_task',
+        taskToken,
+        timestamp: Date.now()
+      } as any)
     }
 
     getPendingTasks(): AsyncTask[] {
@@ -388,10 +388,11 @@ export function withAsyncTasks<T extends new (...args: any[]) => Actor>(Base: T)
         task.status = 'expired'
         this._asyncTasks.delete(task.taskToken)
         
-        this.recordDecision({
-          type: 'expire-async-task',
-          taskToken: task.taskToken
-        })
+        this.journal.entries.push({
+          type: 'temporal_expire_async_task',
+          taskToken: task.taskToken,
+          timestamp: Date.now()
+        } as any)
       }
     }
   }
@@ -401,8 +402,9 @@ export function withAsyncTasks<T extends new (...args: any[]) => Actor>(Base: T)
 // COMBINED MIXIN - ALL FEATURES
 // ============================================================================
 
-export function withTemporalFeatures<T extends new (...args: any[]) => Actor>(Base: T) {
-  // @ts-ignore - TypeScript doesn't allow private/protected properties in exported composed classes
+type TemporalActor = ContinueAsNewCapable & VersionedActor & ChildActorCapable & SearchAttributeCapable & AsyncTaskCapable
+
+export function withTemporalFeatures<T extends new (...args: any[]) => Actor>(Base: T): T & (new (...args: any[]) => TemporalActor) {
   return withAsyncTasks(
     withSearchAttributes(
       withChildActors(
@@ -411,5 +413,5 @@ export function withTemporalFeatures<T extends new (...args: any[]) => Actor>(Ba
         )
       )
     )
-  )
+  ) as T & (new (...args: any[]) => TemporalActor)
 }

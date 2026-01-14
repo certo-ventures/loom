@@ -153,7 +153,7 @@ Be friendly, professional, and concise.`,
     })
     
     // Update conversation state
-    this.updateState({ messages })
+    this.updateState(draft => { draft.messages = messages })
 
     return {
       response: responseContent,

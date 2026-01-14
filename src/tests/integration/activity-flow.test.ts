@@ -37,7 +37,10 @@ class TestActor extends Actor {
   async execute(input: { message: string; times: number }): Promise<any> {
     // Call the echo activity
     const result = await this.callActivity('echo', input)
-    this.updateState({ completed: true, result })
+    this.updateState(draft => {
+      draft.completed = true
+      draft.result = result
+    })
     return { processed: result }
   }
 }

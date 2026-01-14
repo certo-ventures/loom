@@ -42,10 +42,10 @@ Provide 2-3 key points for review.`,
     
     console.log('💬 Review:', review)
     
-    this.updateState({
-      prNumber: prData.number,
-      review,
-      reviewedAt: new Date().toISOString(),
+    this.updateState(draft => {
+      draft.prNumber = prData.number
+      draft.review = review
+      draft.reviewedAt = new Date().toISOString()
     })
   }
 }
@@ -74,10 +74,10 @@ class SlackMessageActor extends AIActor {
     
     console.log('🤖 Reply:', reply)
     
-    this.updateState({
-      messageTs: slackEvent.ts,
-      reply,
-      repliedAt: new Date().toISOString(),
+    this.updateState(draft => {
+      draft.messageTs = slackEvent.ts
+      draft.reply = reply
+      draft.repliedAt = new Date().toISOString()
     })
   }
 }

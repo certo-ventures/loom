@@ -13,10 +13,10 @@ import { InMemoryConfigResolver } from '../src/config-resolver'
 class TestActor extends Actor {
   async execute(data: any): Promise<void> {
     console.log('✅ Actor executed with data:', JSON.stringify(data).substring(0, 100))
-    this.updateState({
-      processed: true,
-      receivedData: data,
-      processedAt: new Date().toISOString(),
+    this.updateState(draft => {
+      draft.processed = true
+      draft.receivedData = data
+      draft.processedAt = new Date().toISOString()
     })
   }
 }

@@ -31,11 +31,11 @@ class OrderActor extends Actor {
 
   constructor(context: ActorContext) {
     super(context)
-    this.updateState({
-      status: 'pending',
-      items: [],
-      total: 0,
-      history: []
+    this.updateState(draft => {
+      draft.status = 'pending'
+      draft.items = []
+      draft.total = 0
+      draft.history = []
     })
   }
 
@@ -48,19 +48,19 @@ class OrderActor extends Actor {
   }
 
   async createOrder(input: any) {
-    this.updateState({ 
-      status: 'processing',
-      items: input.items,
-      total: input.total
+    this.updateState(draft => {
+      draft.status = 'processing'
+      draft.items = input.items
+      draft.total = input.total
     })
     return { orderId: this.context.actorId, status: 'processing' }
   }
 
   // SIGNAL - Async state update (journaled)
   async approveOrder() {
-    this.updateState({ 
-      status: 'approved',
-      approvedAt: Date.now()
+    this.updateState(draft => {
+      draft.status = 'approved'
+      draft.approvedAt = Date.now()
     })
     
     this.recordDecision({
@@ -71,10 +71,10 @@ class OrderActor extends Actor {
 
   // SIGNAL - Can update state
   async cancelOrder(reason: string) {
-    this.updateState({ 
-      status: 'cancelled',
-      cancelReason: reason,
-      cancelledAt: Date.now()
+    this.updateState(draft => {
+      draft.status = 'cancelled'
+      draft.cancelReason = reason
+      draft.cancelledAt = Date.now()
     })
   }
 
@@ -106,10 +106,10 @@ const SubscriptionActor = withTemporalFeatures(class extends Actor {
     this.eventCount++
 
     // Process subscription event
-    this.updateState({
-      lastEvent: input,
-      totalEvents: this.eventCount,
-      lastProcessedAt: Date.now()
+    this.updateState(draft => {
+      draft.lastEvent = input
+      draft.totalEvents = this.eventCount
+      draft.lastProcessedAt = Date.now()
     })
 
     // Continue-as-New after 1000 events (compact journal)
@@ -185,12 +185,12 @@ const UserActor = withTemporalFeatures(class extends Actor {
 
   async execute(input: any): Promise<any> {
     if (input.action === 'register') {
-      this.updateState({
-        email: input.email,
-        name: input.name,
-        status: 'active',
-        premium: false,
-        createdAt: Date.now()
+      this.updateState(draft => {
+        draft.email = input.email
+        draft.name = input.name
+        draft.status = 'active'
+        draft.premium = false
+        draft.createdAt = Date.now()
       })
 
       // Update search attributes for querying
@@ -205,7 +205,7 @@ const UserActor = withTemporalFeatures(class extends Actor {
     }
 
     if (input.action === 'upgrade') {
-      this.updateState({ premium: true })
+      this.updateState(draft => { draft.premium = true })
       await this.updateSearchAttributes({ premium: true })
       return { success: true, premium: true }
     }
@@ -221,10 +221,10 @@ const UserActor = withTemporalFeatures(class extends Actor {
 const ApprovalActor = withTemporalFeatures(class extends Actor {
   async execute(input: any): Promise<any> {
     // Record approval request
-    this.updateState({
-      requestId: input.requestId,
-      amount: input.amount,
-      status: 'pending-approval'
+    this.updateState(draft => {
+      draft.requestId = input.requestId
+      draft.amount = input.amount
+      draft.status = 'pending-approval'
     })
 
     // Create async task for external approval (e.g., email, webhook)
@@ -244,9 +244,9 @@ const ApprovalActor = withTemporalFeatures(class extends Actor {
 
     // In real system, would suspend here and resume when task completes
     // For now, just record the task token
-    this.updateState({ 
-      approvalTaskToken: taskToken,
-      status: 'waiting-for-approval'
+    this.updateState(draft => {
+      draft.approvalTaskToken = taskToken
+      draft.status = 'waiting-for-approval'
     })
 
     return {
@@ -262,10 +262,10 @@ const ApprovalActor = withTemporalFeatures(class extends Actor {
     
     await this.completeAsyncTask(taskToken, { approved, comments })
     
-    this.updateState({
-      status: approved ? 'approved' : 'rejected',
-      approvalComments: comments,
-      completedAt: Date.now()
+    this.updateState(draft => {
+      draft.status = approved ? 'approved' : 'rejected'
+      draft.approvalComments = comments
+      draft.completedAt = Date.now()
     })
 
     this.recordDecision({

@@ -9,7 +9,7 @@ import type { ActorDefinition } from '../../src/actor/actor-definition'
 
 class TestActor extends Actor {
   async execute(input: unknown): Promise<void> {
-    this.updateState({ lastInput: input })
+    this.updateState(draft => { draft.lastInput = input })
   }
 }
 

@@ -14,9 +14,9 @@ class TestActor extends Actor {
   }
 
   async execute(input: { value?: number }) {
-    this.updateState({ 
-      executed: true,
-      value: input.value || 0
+    this.updateState(draft => {
+      draft.executed = true
+      draft.value = input.value || 0
     })
   }
 }

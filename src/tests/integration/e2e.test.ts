@@ -34,13 +34,13 @@ class CounterActor extends Actor {
 
     switch (action) {
       case 'increment':
-        this.updateState({ count: (this.state.count as number) + (amount || 1) });
+        this.updateState(draft => { draft.count = (this.state.count as number) + (amount || 1) })
         break;
       case 'decrement':
-        this.updateState({ count: (this.state.count as number) - (amount || 1) });
+        this.updateState(draft => { draft.count = (this.state.count as number) - (amount || 1) })
         break;
       case 'reset':
-        this.updateState({ count: 0 });
+        this.updateState(draft => { draft.count = 0 })
         break;
     }
   }
@@ -62,7 +62,9 @@ class MessengerActor extends Actor {
       case 'send':
         // Store message locally
         const messages = this.state.messages as any[];
-        this.updateState({ messages: [...messages, { to: targetActorId, text: message }] });
+        this.updateState(draft => {
+          draft.messages = [...messages, { to: targetActorId, text: message }]
+        })
         
         // Send to another actor via message queue
         if (targetActorId) {
@@ -77,7 +79,9 @@ class MessengerActor extends Actor {
 
       case 'receive':
         const msgs = this.state.messages as any[];
-        this.updateState({ messages: [...msgs, { from: input.from, text: message }] });
+        this.updateState(draft => {
+          draft.messages = [...msgs, { from: input.from, text: message }]
+        })
         break;
     }
   }
@@ -115,10 +119,10 @@ class CalculatorActor extends Actor {
     }
 
     const history = this.state.history as any[];
-    this.updateState({
-      result,
-      history: [...history, { operation, a, b, result }],
-    });
+    this.updateState(draft => {
+      draft.result = result
+      draft.history = [...history, { operation, a, b, result }]
+    })
   }
 
   getResult(): number {
@@ -408,7 +412,10 @@ describe.skip('End-to-End Integration Tests (REAL Redis/BullMQ)', () => {
         if (attemptCount < 3) {
           throw new Error('Simulated failure');
         }
-        this.updateState({ success: true, attempts: attemptCount });
+        this.updateState(draft => {
+          draft.success = true
+          draft.attempts = attemptCount
+        })
       }
     }({
       actorId: 'failing-1',

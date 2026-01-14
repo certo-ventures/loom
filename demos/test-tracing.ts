@@ -15,9 +15,9 @@ class OrchestratorActor extends Actor {
     console.log(`\n[Orchestrator] Starting loan review for $${input.loanAmount}`)
     
     // Update state
-    this.updateState({ 
-      status: 'reviewing',
-      loanAmount: input.loanAmount 
+    this.updateState(draft => {
+      draft.status = 'reviewing'
+      draft.loanAmount = input.loanAmount
     })
     
     // Spawn child actors for parallel tasks
@@ -36,9 +36,9 @@ class OrchestratorActor extends Actor {
     this.sendMessage(appraisalId, { action: 'start_appraisal' })
     
     // Simulate decision
-    this.updateState({ 
-      status: 'approved',
-      decision: 'approved' 
+    this.updateState(draft => {
+      draft.status = 'approved'
+      draft.decision = 'approved'
     })
     
     console.log(`[Orchestrator] Loan review complete`)
@@ -58,18 +58,18 @@ class CreditCheckActor extends Actor {
     
     console.log(`  [CreditCheck] Checking credit for $${input.loanAmount}`)
     
-    this.updateState({ 
-      status: 'checking',
-      loanAmount: input.loanAmount 
+    this.updateState(draft => {
+      draft.status = 'checking'
+      draft.loanAmount = input.loanAmount
     })
     
     // Simulate async work
     await new Promise(resolve => setTimeout(resolve, 100))
     
-    this.updateState({ 
-      status: 'complete',
-      score: 750,
-      result: 'approved' 
+    this.updateState(draft => {
+      draft.status = 'complete'
+      draft.score = 750
+      draft.result = 'approved'
     })
     
     console.log(`  [CreditCheck] Credit check complete: 750 score`)
@@ -89,18 +89,18 @@ class AppraisalActor extends Actor {
     
     console.log(`  [Appraisal] Starting appraisal for $${input.loanAmount}`)
     
-    this.updateState({ 
-      status: 'appraising',
-      loanAmount: input.loanAmount 
+    this.updateState(draft => {
+      draft.status = 'appraising'
+      draft.loanAmount = input.loanAmount
     })
     
     // Simulate async work
     await new Promise(resolve => setTimeout(resolve, 150))
     
-    this.updateState({ 
-      status: 'complete',
-      propertyValue: input.loanAmount * 1.2,
-      result: 'sufficient' 
+    this.updateState(draft => {
+      draft.status = 'complete'
+      draft.propertyValue = input.loanAmount * 1.2
+      draft.result = 'sufficient'
     })
     
     console.log(`  [Appraisal] Appraisal complete: $${input.loanAmount * 1.2}`)

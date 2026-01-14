@@ -23,7 +23,7 @@ class CustomerSupportActor extends AIActor {
       { role: 'user', content: query },
     ])
     
-    this.updateState({ lastResponse: response })
+    this.updateState(draft => { draft.lastResponse = response })
   }
 }
 

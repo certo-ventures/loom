@@ -14,7 +14,7 @@ import { Actor, ActorContext } from '../../actor';
 class GreeterActor extends Actor {
   async execute(input: any): Promise<void> {
     const { name } = input;
-    this.updateState({ lastGreeting: `Hello, ${name}!` });
+    this.updateState(draft => { draft.lastGreeting = `Hello, ${name}!` })
   }
 
   getGreeting(): string {
@@ -41,7 +41,7 @@ class CalculatorActor extends Actor {
         throw new Error(`Unknown operation: ${operation}`);
     }
 
-    this.updateState({ lastResult: result });
+    this.updateState(draft => { draft.lastResult = result })
   }
 
   getResult(): number {
@@ -57,7 +57,10 @@ class DataProcessorActor extends Actor {
       const processed = data.map((item: any) => 
         typeof item === 'string' ? item.toUpperCase() : item
       );
-      this.updateState({ processed, count: data.length });
+      this.updateState(draft => {
+        draft.processed = processed
+        draft.count = data.length
+      })
     }
   }
 
