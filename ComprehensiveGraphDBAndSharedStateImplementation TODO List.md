@@ -1,11 +1,11 @@
 Comprehensive Implementation TODO List
-Project: LoomWeave
+Project: LoomDB
 Distributed Graph Database with Git-like Semantics on LoomMesh
 
 Phase 0: Foundation & Dependencies (3 days)
 TODO-001: Project Structure
  Create src/services/gun/ directory structure
- Create src/graph/loomweave/ directory (our graph database)
+ Create src/graph/loomdb/ directory (our graph database)
  Create src/storage/gun/ directory
  Add docs/LOOMWEAVE.md architecture document
  Update package.json with dependencies
@@ -176,7 +176,7 @@ Acceptance: State syncs reliably, conflicts resolved
 
 Lines of code: ~500
 
-Phase 4: LoomWeave Graph Storage (6 days)
+Phase 4: LoomDB Graph Storage (6 days)
 TODO-017: Graph Data Model
  Define Node interface (id, type, properties, metadata)
  Define Edge interface (id, from, to, type, properties, weight)
@@ -189,8 +189,8 @@ Acceptance: Clean, type-safe graph model
 
 Lines of code: ~200
 
-TODO-018: LoomWeave Storage Layer
- Implement LoomWeaveStore class on LoomMesh
+TODO-018: LoomDB Storage Layer
+ Implement LoomDBStore class on LoomMesh
  Implement putNode(id, data) - store node
  Implement putEdge(from, to, type, props) - store edge
  Implement getNode(id) - retrieve node
@@ -228,7 +228,7 @@ Acceptance: All storage operations reliable
 
 Lines of code: ~400
 
-Phase 5: LoomWeave Query Engine (7 days)
+Phase 5: LoomDB Query Engine (7 days)
 TODO-021: Graph Traversal
  Implement GraphTraversal class
  Implement BFS traversal
@@ -400,12 +400,12 @@ Acceptance: Can reason about causality
 Lines of code: ~300
 
 TODO-035: Integration with ActorMemory
- Add LoomWeave backend option to ActorMemory
- Bridge existing memory APIs to LoomWeave
+ Add LoomDB backend option to ActorMemory
+ Bridge existing memory APIs to LoomDB
  Maintain backward compatibility
  Write migration tests
  Document upgrade path
-Acceptance: ActorMemory can use LoomWeave as backend
+Acceptance: ActorMemory can use LoomDB as backend
 
 Lines of code: ~200
 

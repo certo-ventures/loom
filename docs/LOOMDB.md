@@ -1,6 +1,6 @@
-# LoomWeave: Distributed Graph Database
+# LoomDB: Distributed Graph Database
 
-**LoomWeave** is Loom's distributed graph database built on LoomMesh, providing:
+**LoomDB** is Loom's distributed graph database built on LoomMesh, providing:
 - **Distributed state sync** for actors across nodes
 - **Git-like versioning** with branches, commits, and merges
 - **Graph query engine** with pattern matching and traversal
@@ -10,7 +10,7 @@
 
 ```
 ┌─────────────────────────────────────────────────┐
-│              LoomWeave Layer                    │
+│              LoomDB Layer                    │
 │  ┌──────────────┐  ┌──────────────┐            │
 │  │ Query Engine │  │ Version Ctrl │            │
 │  └──────┬───────┘  └──────┬───────┘            │
@@ -38,22 +38,22 @@
 - **GunMetrics**: Monitoring and observability
 - **GunConfig**: Azure-aware configuration
 
-### 2. Graph Storage (`src/graph/loomweave/`)
-- **LoomWeaveStore**: Core graph storage (nodes, edges, indexes)
+### 2. Graph Storage (`src/graph/loomdb/`)
+- **LoomDBStore**: Core graph storage (nodes, edges, indexes)
 - **IndexManager**: Secondary indexes for fast queries
 - **Model**: Type-safe graph data model
 
-### 3. Query Engine (`src/graph/loomweave/`)
+### 3. Query Engine (`src/graph/loomdb/`)
 - **QueryEngine**: Pattern matching, traversal, pathfinding
 - **GraphTraversal**: BFS, DFS, bidirectional search
 - **PatternMatcher**: Cypher-like query DSL
 
-### 4. Version Control (`src/graph/loomweave/`)
+### 4. Version Control (`src/graph/loomdb/`)
 - **VersionControl**: Git-like branches, commits, merges
 - **ContentAddressableStore**: Immutable object storage
 - **MergeAlgorithm**: Three-way merge with Immer patches
 
-### 5. Agent Context (`src/graph/loomweave/`)
+### 5. Agent Context (`src/graph/loomdb/`)
 - **AgentContextManager**: Track decisions, facts, observations
 - **CausalReasoning**: Explain decisions with causal chains
 - **ContextRanking**: Relevance scoring for agent context
@@ -85,7 +85,7 @@ const actor = new MyActor(context, initialState, {
 
 ```typescript
 // Build agent context graph
-const graph = new LoomWeave(gunService.getGun())
+const graph = new LoomDB(gunService.getGun())
 
 // Record decision with context
 await graph.recordDecision(agentId, {
@@ -174,7 +174,7 @@ See [TODO List](../ComprehensiveGraphDBAndSharedStateImplementation%20TODO%20Lis
 
 ## Minimal Code, Maximum Functionality
 
-LoomWeave achieves full functionality with ~12k lines by:
+LoomDB achieves full functionality with ~12k lines by:
 - ✅ Leveraging LoomMesh for storage/sync (~5k lines saved)
 - ✅ Using Immer patches for git diffs (~1k lines saved)
 - ✅ Reusing Actor infrastructure (~2k lines saved)

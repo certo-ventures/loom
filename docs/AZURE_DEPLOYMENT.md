@@ -1,8 +1,8 @@
-# Azure Container Apps Deployment Architecture for LoomWeave
+# Azure Container Apps Deployment Architecture for LoomDB
 
 ## Overview
 
-LoomWeave is designed to run on **Azure Container Apps** (ACA) with distributed state sync via LoomMesh. This document outlines the deployment architecture, networking, persistence, and service discovery patterns.
+LoomDB is designed to run on **Azure Container Apps** (ACA) with distributed state sync via LoomMesh. This document outlines the deployment architecture, networking, persistence, and service discovery patterns.
 
 ## Architecture Diagram
 
@@ -558,4 +558,4 @@ az storage share show --name gun-storage --account-name {storage}
 - [Azure Container Apps Documentation](https://learn.microsoft.com/en-us/azure/container-apps/)
 - [Azure Files in Container Apps](https://learn.microsoft.com/en-us/azure/container-apps/storage-mounts)
 - [LoomMesh Documentation](https://gun.eco/docs/)
-- [LoomWeave Architecture](./LOOMWEAVE.md)
+- [LoomDB Architecture](./LOOMWEAVE.md)
