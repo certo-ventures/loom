@@ -15,6 +15,18 @@ import type { ActorImplementation } from '../../pipelines/pipeline-actor-worker'
 import type { PipelineDefinition } from '../../pipelines/pipeline-orchestrator'
 import { PipelineOrchestrator } from '../../pipelines/pipeline-orchestrator'
 
+async function waitForPipeline(stateStore: RedisPipelineStateStore, pipelineId: string, timeoutMs = 5000): Promise<void> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const record = await stateStore.getPipeline(pipelineId)
+    if (record && (record.status === 'completed' || record.status === 'failed')) {
+      return
+    }
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  throw new Error('Pipeline did not complete within timeout')
+}
+
 describe('PipelineActorWorker - Registration Patterns', () => {
   let redisContext: RedisTestContext
   let messageQueue: BullMQMessageQueue
@@ -63,17 +75,18 @@ describe('PipelineActorWorker - Registration Patterns', () => {
         stages: [
           {
             name: 'process',
+            mode: 'single',
             actor: 'SimpleActor',
             input: '$.trigger.value'
           }
         ]
       }
 
-      const pipelineId = await executor.startPipeline(pipeline, { value: 'test-data' })
-      await executor.waitForCompletion(pipelineId, 5000)
+      const pipelineId = await executor.execute(pipeline, { value: 'test-data' })
+      await waitForPipeline(stateStore, pipelineId, 5000)
 
-      const state = await stateStore.getPipelineState(pipelineId)
-      expect(state?.status).toBe('completed')
+      const record = await stateStore.getPipeline(pipelineId)
+      expect(record?.status).toBe('completed')
       expect(results).toEqual(['processed-test-data'])
     })
   })
@@ -124,17 +137,18 @@ describe('PipelineActorWorker - Registration Patterns', () => {
         stages: [
           {
             name: 'process',
+            mode: 'single',
             actor: 'DependentActor',
             input: '$.trigger.value'
           }
         ]
       }
 
-      const pipelineId = await executor.startPipeline(pipeline, { value: 'test' })
-      await executor.waitForCompletion(pipelineId, 5000)
+      const pipelineId = await executor.execute(pipeline, { value: 'test' })
+      await waitForPipeline(stateStore, pipelineId, 5000)
 
-      const state = await stateStore.getPipelineState(pipelineId)
-      expect(state?.status).toBe('completed')
+      const record = await stateStore.getPipeline(pipelineId)
+      expect(record?.status).toBe('completed')
       expect(results).toEqual(['test-cosmos:1-model:gpt-4'])
     })
 
@@ -176,13 +190,13 @@ describe('PipelineActorWorker - Registration Patterns', () => {
         ]
       }
 
-      const pipelineId = await executor.startPipeline(pipeline, {
+      const pipelineId = await executor.execute(pipeline, {
         items: ['task1', 'task2', 'task3']
       })
-      await executor.waitForCompletion(pipelineId, 5000)
+      await waitForPipeline(stateStore, pipelineId, 5000)
 
-      const state = await stateStore.getPipelineState(pipelineId)
-      expect(state?.status).toBe('completed')
+      const record = await stateStore.getPipeline(pipelineId)
+      expect(record?.status).toBe('completed')
       
       // All tasks should use the SAME instance
       expect(instanceIds.size).toBe(1)
@@ -223,17 +237,18 @@ describe('PipelineActorWorker - Registration Patterns', () => {
         stages: [
           {
             name: 'process',
+            mode: 'single',
             actor: 'FactoryActor',
             input: '$.trigger.id'
           }
         ]
       }
 
-      const pipelineId = await executor.startPipeline(pipeline, { id: 'test-123' })
-      await executor.waitForCompletion(pipelineId, 5000)
+      const pipelineId = await executor.execute(pipeline, { id: 'test-123' })
+      await waitForPipeline(stateStore, pipelineId, 5000)
 
-      const state = await stateStore.getPipelineState(pipelineId)
-      expect(state?.status).toBe('completed')
+      const record = await stateStore.getPipeline(pipelineId)
+      expect(record?.status).toBe('completed')
       expect(results).toEqual(['data-test-123'])
     })
 
@@ -270,17 +285,18 @@ describe('PipelineActorWorker - Registration Patterns', () => {
         stages: [
           {
             name: 'process',
+            mode: 'single',
             actor: 'ContextAwareActor',
             input: '$.trigger.value'
           }
         ]
       }
 
-      const pipelineId = await executor.startPipeline(pipeline, { value: 'test-data' })
-      await executor.waitForCompletion(pipelineId, 5000)
+      const pipelineId = await executor.execute(pipeline, { value: 'test-data' })
+      await waitForPipeline(stateStore, pipelineId, 5000)
 
-      const state = await stateStore.getPipelineState(pipelineId)
-      expect(state?.status).toBe('completed')
+      const record = await stateStore.getPipeline(pipelineId)
+      expect(record?.status).toBe('completed')
       expect(results).toHaveLength(1)
       expect(results[0]).toMatchObject({
         input: 'test-data',
@@ -329,13 +345,13 @@ describe('PipelineActorWorker - Registration Patterns', () => {
         ]
       }
 
-      const pipelineId = await executor.startPipeline(pipeline, {
+      const pipelineId = await executor.execute(pipeline, {
         items: ['task1', 'task2', 'task3']
       })
-      await executor.waitForCompletion(pipelineId, 5000)
+      await waitForPipeline(stateStore, pipelineId, 5000)
 
-      const state = await stateStore.getPipelineState(pipelineId)
-      expect(state?.status).toBe('completed')
+      const record = await stateStore.getPipeline(pipelineId)
+      expect(record?.status).toBe('completed')
       
       // Each task gets a NEW instance
       expect(instanceIds.size).toBe(3)
@@ -389,27 +405,30 @@ describe('PipelineActorWorker - Registration Patterns', () => {
         stages: [
           {
             name: 'step1',
+            mode: 'single',
             actor: 'ClassActor',
             input: '"test"'
           },
           {
             name: 'step2',
+            mode: 'single',
             actor: 'InstanceActor',
             input: '"data"'
           },
           {
             name: 'step3',
+            mode: 'single',
             actor: 'FactoryActor',
             input: '5'
           }
         ]
       }
 
-      const pipelineId = await executor.startPipeline(pipeline, {})
-      await executor.waitForCompletion(pipelineId, 5000)
+      const pipelineId = await executor.execute(pipeline, {})
+      await waitForPipeline(stateStore, pipelineId, 5000)
 
-      const state = await stateStore.getPipelineState(pipelineId)
-      expect(state?.status).toBe('completed')
+      const record = await stateStore.getPipeline(pipelineId)
+      expect(record?.status).toBe('completed')
       expect(results).toEqual(['class-test', 'instance-data', 10])
     })
   })

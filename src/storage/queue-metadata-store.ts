@@ -72,10 +72,11 @@ export class QueueMetadataStore {
    */
   async recordJob(metadata: JobMetadata, updateStats = true): Promise<void> {
     const key = this.getJobMetadataKey(metadata.jobId)
-    await this.redis.setex(
+    await this.redis.set(
       key,
-      86400 * 7, // 7 days TTL
-      JSON.stringify(metadata)
+      JSON.stringify(metadata),
+      'EX',
+      86400 * 7 // 7 days TTL
     )
 
     // Update queue stats only on initial enqueue
