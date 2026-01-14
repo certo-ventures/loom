@@ -251,7 +251,7 @@ describe('Pipeline DAG execution', () => {
           mode: 'single',
           actor: 'ResumeDAGActor',
           input: {
-            value: '$.trigger.val1'
+            value: 'trigger.val1'
           }
         },
         {
@@ -259,7 +259,7 @@ describe('Pipeline DAG execution', () => {
           mode: 'single',
           actor: 'ResumeDAGActor',
           input: {
-            value: '$.trigger.val2'
+            value: 'trigger.val2'
           },
           dependsOn: 'init'
         },
@@ -268,7 +268,7 @@ describe('Pipeline DAG execution', () => {
           mode: 'single',
           actor: 'ResumeDAGActor',
           input: {
-            value: '$.trigger.val3'
+            value: 'trigger.val3'
           },
           dependsOn: 'init'
         }

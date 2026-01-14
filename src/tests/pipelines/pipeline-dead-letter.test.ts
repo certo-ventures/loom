@@ -70,7 +70,7 @@ describe('Pipeline DLQ integration', () => {
           mode: 'single',
           actor: 'AlwaysFails',
           input: {
-            value: '$.trigger.value'
+            value: 'trigger.value'
           },
           retry: {
             maxAttempts: 1
@@ -84,7 +84,7 @@ describe('Pipeline DLQ integration', () => {
 
     await waitFor(async () => {
       const records = await orchestrator.listDeadLetterMessages(dlqQueue)
-      return records.length > 0
+      return records.length > `0`
     })
 
     const [record] = await orchestrator.listDeadLetterMessages(dlqQueue)
@@ -114,7 +114,7 @@ describe('Pipeline DLQ integration', () => {
           mode: 'single',
           actor: 'CrashActor',
           input: {
-            requestId: '$.trigger.id'
+            requestId: 'trigger.id'
           },
           config: {
             deadLetterQueue: customDlq
@@ -130,7 +130,7 @@ describe('Pipeline DLQ integration', () => {
 
     await waitFor(async () => {
       const records = await orchestrator.listDeadLetterMessages(customDlq)
-      return records.length > 0
+      return records.length > `0`
     })
 
     const [record] = await orchestrator.listDeadLetterMessages(customDlq)

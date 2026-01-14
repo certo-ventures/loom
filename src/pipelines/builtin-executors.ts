@@ -4,7 +4,7 @@
  * Standard orchestration patterns: scatter, gather, single, map-reduce, broadcast, etc.
  */
 
-import jp from 'jsonpath'
+import { pipelineExpressionEvaluator } from './expression-evaluator'
 import {
   StageExecutor,
   BaseStageExecutor,
@@ -64,17 +64,17 @@ export class ScatterExecutor extends BaseStageExecutor {
     
     const config = this.getConfig<ScatterConfig>(stage)
     
-    // Extract items using JSONPath
-    console.log(`   📍 JSONPath query: ${stage.scatter.input}`)
+    // Extract items using JMESPath
+    console.log(`   📍 JMESPath query: ${stage.scatter.input}`)
     console.log(`   📦 Available stages: ${Object.keys(pipelineContext.stages || {}).join(', ')}`)
     
-    let items = jp.query(pipelineContext, stage.scatter.input)
+    const result = pipelineExpressionEvaluator.evaluate<any[]>(stage.scatter.input, pipelineContext)
+    let items = result.success ? result.value : []
     
-    if (items.length === 0) {
-      const dotNotation = stage.scatter.input.replace(/\["([^"]+)"\]/g, '.$1')
-      console.warn(`   ⚠️  JSONPath returned 0 items!`)
+    if (!items || items.length === 0) {
+      console.warn(`   ⚠️  JMESPath returned 0 items!`)
       console.warn(`   💡 Suggestions:`)
-      console.warn(`      - Try dot notation: ${dotNotation}`)
+      console.warn(`      - Expression: ${stage.scatter.input}`)
       console.warn(`      - Check stage has completed and stored results`)
       console.warn(`      - Verify stage name matches exactly (case-sensitive)`)
       
@@ -88,32 +88,32 @@ export class ScatterExecutor extends BaseStageExecutor {
       }
     }
     
-    if (items.length > 0 && Array.isArray(items[0])) {
+    if (items && items.length > 0 && Array.isArray(items[0])) {
       items = items.flat()
     }
     
     // Apply condition filter if specified
-    if (stage.scatter?.condition) {
+    if (stage.scatter?.condition && items) {
       const originalCount = items.length
       items = items.filter(item => {
         const scopedContext = {
           ...pipelineContext,
           [stage.scatter!.as]: item
         }
-        // Simple expression evaluator for conditions
         return this.evaluateCondition(stage.scatter!.condition!, scopedContext)
       })
       console.log(`   🔍 FILTER: ${originalCount} items → ${items.length} items (condition: ${stage.scatter!.condition})`)
     }
     
-    console.log(`   🔀 SCATTER: Fan-out over ${items.length} items`)
+    const itemCount = items?.length ?? 0
+    console.log(`   🔀 SCATTER: Fan-out over ${itemCount} items`)
     if (config.maxParallel) {
       console.log(`      Max parallel: ${config.maxParallel}`)
     }
     
     // Enqueue messages for each item
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]
+    for (let i = 0; i < itemCount; i++) {
+      const item = items![i]
       
       // Create scoped context with scatter variable
       const scopedContext = {
@@ -128,9 +128,9 @@ export class ScatterExecutor extends BaseStageExecutor {
     }
     
     const actorDisplay = typeof stage.actor === 'string' ? stage.actor : '[strategy]'
-    console.log(`   ✅ ${items.length} messages enqueued to: actor-${actorDisplay}`)
+    console.log(`   ✅ ${itemCount} messages enqueued to: actor-${actorDisplay}`)
     
-    return { expectedTasks: items.length }
+    return { expectedTasks: itemCount }
   }
 }
 
@@ -186,7 +186,11 @@ export class GatherExecutor extends BaseStageExecutor {
       const groups = new Map<string, any[]>()
       
       for (const item of allOutputs) {
-        const groupKey = jp.value(item, stage.gather.groupBy)
+        const result = pipelineExpressionEvaluator.evaluate<string>(stage.gather.groupBy, {
+          ...pipelineContext,
+          item
+        })
+        const groupKey = result.success && result.value ? String(result.value) : 'unknown'
         if (!groups.has(groupKey)) {
           groups.set(groupKey, [])
         }
@@ -273,6 +277,13 @@ export class BroadcastExecutor extends BaseStageExecutor {
 // ============================================================================
 // Map-Reduce Executor - Scatter + Gather in one
 // ============================================================================
+// NOTE: Map-Reduce is a COMPOUND pattern that requires orchestrator-level support
+// for multi-phase execution. Currently NOT IMPLEMENTED in orchestrator.
+// Use separate scatter + gather stages as a workaround:
+//   Stage 1: scatter with mapActor
+//   Stage 2: gather with reduceActor
+// 
+// This executor is kept as a placeholder for future implementation.
 
 export interface MapReduceConfig {
   mapActor: string      // Actor for map phase
@@ -289,13 +300,15 @@ export class MapReduceExecutor extends BaseStageExecutor {
   }
   
   async execute(context: ExecutionContext): Promise<ExecutionResult> {
-    const { stage, pipelineContext } = context
+    const { stage } = context
     const config = this.getConfig<MapReduceConfig>(stage)
     
-    // This is a compound executor - would need orchestrator support
-    // For now, just demonstrate the concept
-    
+    // This is a compound executor - requires orchestrator support for multi-phase
     console.log(`   🗺️  MAP-REDUCE: Map with ${config.mapActor}, Reduce with ${config.reduceActor}`)
+    console.error(`   ❌ Map-Reduce executor not yet implemented!`)
+    console.error(`   💡 Workaround: Use separate scatter + gather stages`)
+    console.error(`      Stage 1: mode: 'scatter', actor: '${config.mapActor}'`)
+    console.error(`      Stage 2: mode: 'gather', actor: '${config.reduceActor}'`)
     
     // In real implementation, this would:
     // 1. Execute map phase (scatter over input with mapActor)
@@ -303,7 +316,7 @@ export class MapReduceExecutor extends BaseStageExecutor {
     // 3. Group results if combineBy specified
     // 4. Execute reduce phase with grouped results
     
-    throw new Error('Map-Reduce executor requires multi-stage support')
+    throw new Error('Map-Reduce executor requires multi-stage orchestrator support (not yet implemented). Use separate scatter + gather stages instead.')
   }
 }
 

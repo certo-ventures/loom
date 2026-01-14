@@ -12,7 +12,7 @@
 import { EventEmitter } from 'events'
 import { Redis } from 'ioredis'
 import { PipelineDefinition, StageDefinition } from './pipeline-dsl'
-import jp from 'jsonpath'
+import { pipelineExpressionEvaluator } from './expression-evaluator'
 import { v4 as uuidv4 } from 'uuid'
 
 // ============================================================================
@@ -217,23 +217,25 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
       throw new Error(`Stage ${stage.name} missing scatter config`)
     }
     
-    // Resolve items to scatter over
-    let items = jp.query(state.context, stage.scatter.input)
+    // Resolve items to scatter over using JMESPath
+    const result = pipelineExpressionEvaluator.evaluate<any[]>(stage.scatter.input, state.context)
+    let items = result.success ? result.value : []
     
-    if (items.length > 0 && Array.isArray(items[0])) {
+    if (items && items.length > 0 && Array.isArray(items[0])) {
       items = items.flat()
     }
     
-    if (items.length === 0 && stage.scatter.input === '$.files') {
+    if ((!items || items.length === 0) && stage.scatter.input === 'files') {
       items = state.context.trigger?.files || []
     }
     
-    console.log(`   🔀 SCATTER: Fan-out over ${items.length} items`)
-    console.log(`   📨 Publishing ${items.length} actor tasks to Redis queue`)
+    const itemCount = items?.length ?? 0
+    console.log(`   🔀 SCATTER: Fan-out over ${itemCount} items`)
+    console.log(`   📨 Publishing ${itemCount} actor tasks to Redis queue`)
     console.log(`      Queue: queue:actors:${stage.actor}`)
     
     // Publish actor task for each item
-    const tasks = items.map((item, index) => {
+    const tasks = items ? items.map((item, index) => {
       const actorId = `${pipelineId}:actor:${stage.name}:${index}`
       
       // Create scoped context
@@ -253,7 +255,7 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
         itemIndex: index,
         resultChannel: `${pipelineId}:actor:completed`
       }
-    })
+    }) : []
     
     // Push all tasks to Redis queue (work queue pattern)
     const pipeline = this.redis.pipeline()
@@ -264,10 +266,10 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
     await pipeline.exec()
     
     // Set expected actors for barrier
-    stageState.expectedActors = items.length
+    stageState.expectedActors = items?.length ?? 0
     await this.redis.set(`${pipelineId}:stage:${stage.name}`, JSON.stringify(stageState))
     
-    console.log(`   ✅ ${items.length} tasks queued for distributed execution`)
+    console.log(`   ✅ ${items?.length ?? 0} tasks queued for distributed execution`)
   }
 
   /**
@@ -297,7 +299,8 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
       const groups = new Map<string, any[]>()
       
       for (const item of targetOutputs) {
-        const groupKey = jp.value(item, stage.gather.groupBy)
+        const result = pipelineExpressionEvaluator.evaluate(stage.gather.groupBy, item)
+        const groupKey = result.success ? result.value : 'default'
         if (!groups.has(groupKey)) {
           groups.set(groupKey, [])
         }
@@ -454,15 +457,22 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
   /**
    * Resolve input from context using JSONPath
    */
-  private resolveInput(inputDef: Record<string, string>, context: any): any {
+  private resolveInput(inputDef: Record<string, any>, context: any): any {
     const resolved: any = {}
     
-    for (const [key, path] of Object.entries(inputDef)) {
-      if (path.startsWith('$')) {
-        const value = jp.value(context, path)
-        resolved[key] = value
+    for (const [key, value] of Object.entries(inputDef)) {
+      if (typeof value === 'string' && value.startsWith('$')) {
+        // Legacy JSONPath support - convert $.field to field
+        const jmesPath = value.substring(2) // Remove '$.'
+        const result = pipelineExpressionEvaluator.evaluate(jmesPath, context)
+        resolved[key] = result.success ? result.value : value
+      } else if (typeof value === 'string') {
+        // JMESPath expression or literal value
+        const result = pipelineExpressionEvaluator.evaluate(value, context)
+        resolved[key] = result.success ? result.value : value
       } else {
-        resolved[key] = path
+        // Non-string values
+        resolved[key] = value
       }
     }
     

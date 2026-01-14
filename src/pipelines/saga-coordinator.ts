@@ -88,8 +88,8 @@ export class SagaCoordinator {
     let compensationCount = 0
     let action: string | null
     
-    // Pop from stack (RPOP for LIFO)
-    while ((action = await this.redis.rpop(`saga:${pipelineId}:compensations`))) {
+    // Pop from stack (LPOP for LIFO with LPUSH)
+    while ((action = await this.redis.lpop(`saga:${pipelineId}:compensations`))) {
       const compensation: CompensationAction = JSON.parse(action)
       
       try {
@@ -112,7 +112,7 @@ export class SagaCoordinator {
         }
         
         await this.messageQueue.enqueue(`actor-${compensation.actor}`, message, {
-          jobId: `compensation:${pipelineId}:${compensation.stageName}`,
+          jobId: `compensation-${pipelineId.replace(/:/g, '-')}-${compensation.stageName}`,
           attempts: 3,
           backoff: {
             type: 'exponential',

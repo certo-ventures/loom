@@ -73,9 +73,9 @@ export interface StageDefinition {
   
   // For scatter mode: what to fan-out over
   scatter?: {
-    input: string  // JSONPath expression to array
+    input: string  // JMESPath expression to array (e.g., "stages.parse[0].pages")
     as: string  // Variable name for each item
-    condition?: string  // Optional filter: JSONPath boolean expression (e.g., '$.item.status != "processed"')
+    condition?: string  // Optional filter: JMESPath expression (e.g., "[?status != 'processed']")
   }
   
   // For gather mode: what to wait for
@@ -87,14 +87,22 @@ export interface StageDefinition {
     combine?: 'concat' | 'object'  // How to combine multi-stage results (default: 'concat')
   }
   
-  // Input mapping (from previous stages or trigger)
-  input: Record<string, string>  // JSONPath expressions
+  // Input mapping (JMESPath expressions or static values)
+  // Examples:
+  //   fileUrl: "trigger.fileUrl"
+  //   pages: "stages.extract[0].pages"
+  //   content: "stages.detect[0].pdfType == 'text' && stages.extractText[0].text || stages.extractImages[0].imageUrls"
+  input: Record<string, string | any>
   
   // Output mapping (what to emit for next stages)
   output?: Record<string, string>
   
-  // Conditional execution
-  when?: string  // Boolean expression
+  // Conditional execution (JMESPath boolean expression)
+  // Examples:
+  //   "stages.detect[0].pdfType == 'text'"
+  //   "trigger.fileSize < `10000000` && trigger.valid"
+  //   "length(stages.classify[?confidence > `0.8`]) > `0`"
+  when?: string
   
   // Stage configuration
   config?: {

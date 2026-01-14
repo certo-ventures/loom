@@ -5,12 +5,11 @@
  * just like actors are dynamically registered.
  */
 
-import jp from 'jsonpath'
 import { v4 as uuidv4 } from 'uuid'
 import { BullMQMessageQueue } from '../storage/bullmq-message-queue'
 import { StageDefinition, ActorStrategy, StageRetryPolicy } from './pipeline-dsl'
 import { PipelineStateStore, DEFAULT_TASK_LEASE_TTL_MS } from './pipeline-state-store'
-import { ExpressionEvaluator } from './expression-evaluator'
+import { pipelineExpressionEvaluator } from './expression-evaluator'
 
 /**
  * Pipeline-specific message format
@@ -89,15 +88,23 @@ export abstract class BaseStageExecutor implements StageExecutor {
   /**
    * Resolve input from context using JSONPath
    */
-  protected resolveInput(inputDef: Record<string, string>, context: any): any {
+  protected resolveInput(inputDef: Record<string, any>, context: any): any {
     const resolved: any = {}
     
-    for (const [key, path] of Object.entries(inputDef)) {
-      if (path.startsWith('$')) {
-        const value = jp.value(context, path)
-        resolved[key] = value
+    for (const [key, value] of Object.entries(inputDef)) {
+      if (typeof value === 'string' && value.startsWith('$')) {
+        // Legacy JSONPath support - convert $.field to field
+        const jmesPath = value.substring(2) // Remove '$.'
+        const result = pipelineExpressionEvaluator.evaluate(jmesPath, context)
+        resolved[key] = result.success ? result.value : value
+      } else if (typeof value === 'string') {
+        // Try JMESPath evaluation - if it successfully resolves, use it; otherwise treat as literal
+        const result = pipelineExpressionEvaluator.evaluate(value, context)
+        // Use the evaluated value if successful AND not null/undefined, otherwise use literal
+        resolved[key] = (result.success && result.value !== null && result.value !== undefined) ? result.value : value
       } else {
-        resolved[key] = path
+        // Non-string values (objects, arrays, numbers, etc.)
+        resolved[key] = value
       }
     }
     
@@ -142,7 +149,7 @@ export abstract class BaseStageExecutor implements StageExecutor {
    * Evaluate condition expression using expression evaluator
    */
   protected evaluateCondition(condition: string, context: any): boolean {
-    return ExpressionEvaluator.evaluate(condition, context)
+    return pipelineExpressionEvaluator.evaluateCondition(condition, context)
   }
   
   /**
@@ -184,16 +191,23 @@ export abstract class BaseStageExecutor implements StageExecutor {
    * Evaluate ternary expression: condition ? trueValue : falseValue
    */
   private evaluateTernary(expression: string, context: any): string {
+    // JMESPath: Use && || pattern instead of ternary: condition && "value1" || "value2"
+    // Also support legacy ternary syntax: condition ? "value1" : "value2"
     const ternaryMatch = expression.match(/(.+?)\s*\?\s*"([^"]+)"\s*:\s*"([^"]+)"/)
     
-    if (!ternaryMatch) {
-      throw new Error(`Invalid ternary expression: ${expression}`)
+    if (ternaryMatch) {
+      // Legacy ternary syntax
+      const [, condition, trueValue, falseValue] = ternaryMatch
+      const result = this.evaluateCondition(condition.trim(), context)
+      return result ? trueValue : falseValue
     }
     
-    const [, condition, trueValue, falseValue] = ternaryMatch
-    const result = this.evaluateCondition(condition.trim(), context)
-    
-    return result ? trueValue : falseValue
+    // JMESPath expression evaluation - returns string directly
+    const result = pipelineExpressionEvaluator.evaluateActorName(expression, context)
+    if (!result) {
+      throw new Error(`Actor strategy evaluation returned null: ${expression}`)
+    }
+    return result
   }
 
   protected async enqueueActorTask(

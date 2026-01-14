@@ -63,13 +63,13 @@ describe('Conditional Scatter', () => {
           mode: 'scatter',
           actor: 'DocumentProcessor',
           scatter: {
-            input: '$.trigger.documents',
+            input: 'trigger.documents',
             as: 'doc',
-            condition: '$.doc.status == "pending"'  // Only process pending docs
+            condition: 'doc.status == `"pending"`'  // Only process pending docs
           },
           input: {
-            docId: '$.doc.id',
-            status: '$.doc.status'
+            docId: 'doc.id',
+            status: 'doc.status'
           }
         }
       ]
@@ -120,12 +120,12 @@ describe('Conditional Scatter', () => {
           mode: 'scatter',
           actor: 'TransactionProcessor',
           scatter: {
-            input: '$.trigger.transactions',
+            input: 'trigger.transactions',
             as: 'tx',
-            condition: '$.tx.amount > 1000'  // Only large transactions
+            condition: 'tx.amount > `1000`'  // Only large transactions
           },
           input: {
-            amount: '$.tx.amount'
+            amount: 'tx.amount'
           }
         }
       ]
@@ -170,12 +170,12 @@ describe('Conditional Scatter', () => {
           mode: 'scatter',
           actor: 'ItemProcessor',
           scatter: {
-            input: '$.trigger.items',
+            input: 'trigger.items',
             as: 'item'
             // No condition - process all
           },
           input: {
-            id: '$.item.id'
+            id: 'item.id'
           }
         }
       ]

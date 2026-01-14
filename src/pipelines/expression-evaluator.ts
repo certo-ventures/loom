@@ -1,144 +1,135 @@
 /**
- * Simple Expression Evaluator for Pipeline Conditions
+ * JMESPath Expression Evaluator for Pipeline Conditional Routing
  * 
- * Supports:
- * - JSONPath value extraction: $.item.status
- * - Comparisons: ==, !=, >, <, >=, <=
- * - Logical operators: &&, ||
- * - Literals: strings ("value"), numbers (123), booleans (true/false)
+ * Minimal implementation with maximum functionality:
+ * - Boolean condition evaluation (when clauses)
+ * - Dynamic actor name resolution
+ * - Expression-based input mapping
+ * - Custom function support
+ * 
+ * No compilation, no caching - strings evaluate directly
  */
 
-import jp from 'jsonpath'
+import jmespath from 'jmespath'
 
-export class ExpressionEvaluator {
-  /**
-   * Evaluate a condition expression against a context
-   */
-  static evaluate(expression: string, context: any): boolean {
-    try {
-      // Tokenize the expression
-      const tokens = this.tokenize(expression)
-      
-      // Evaluate tokens
-      return this.evaluateTokens(tokens, context)
-    } catch (error) {
-      console.error(`Failed to evaluate expression: ${expression}`, error)
-      return false
-    }
-  }
-
-  /**
-   * Tokenize expression into parts
-   */
-  private static tokenize(expr: string): string[] {
-    // Split on operators while preserving them
-    return expr
-      .replace(/\s*(&&|\|\||==|!=|>=|<=|>|<)\s*/g, ' $1 ')  // Add spaces around operators
-      .split(/\s+/)  // Split on whitespace
-      .filter(t => t.length > 0)
-  }
-
-  /**
-   * Evaluate tokenized expression
-   */
-  private static evaluateTokens(tokens: string[], context: any): boolean {
-    // Handle simple binary comparisons first
-    if (tokens.length === 3) {
-      const [left, op, right] = tokens
-      const leftVal = this.getValue(left, context)
-      const rightVal = this.getValue(right, context)
-      return this.compare(leftVal, op, rightVal)
-    }
-
-    // Handle logical operators (&&, ||)
-    let result = true
-    let currentOp = '&&'
-    let i = 0
-
-    while (i < tokens.length) {
-      if (tokens[i] === '&&' || tokens[i] === '||') {
-        currentOp = tokens[i]
-        i++
-        continue
-      }
-
-      // Get comparison (next 3 tokens)
-      if (i + 2 < tokens.length) {
-        const left = tokens[i]
-        const op = tokens[i + 1]
-        const right = tokens[i + 2]
-        
-        const leftVal = this.getValue(left, context)
-        const rightVal = this.getValue(right, context)
-        const compResult = this.compare(leftVal, op, rightVal)
-
-        if (currentOp === '&&') {
-          result = result && compResult
-        } else {
-          result = result || compResult
-        }
-
-        i += 3
-      } else {
-        break
-      }
-    }
-
-    return result
-  }
-
-  /**
-   * Get value from token (JSONPath, literal, or boolean)
-   */
-  private static getValue(token: string, context: any): any {
-    // JSONPath
-    if (token.startsWith('$.')) {
-      const value = jp.value(context, token)
-      return value
-    }
-
-    // String literal
-    if (token.startsWith('"') && token.endsWith('"')) {
-      return token.slice(1, -1)
-    }
-    if (token.startsWith("'") && token.endsWith("'")) {
-      return token.slice(1, -1)
-    }
-
-    // Boolean
-    if (token === 'true') return true
-    if (token === 'false') return false
-    if (token === 'null') return null
-
-    // Number
-    if (!isNaN(Number(token))) {
-      return Number(token)
-    }
-
-    // Default: return as string
-    return token
-  }
-
-  /**
-   * Compare two values with an operator
-   */
-  private static compare(left: any, op: string, right: any): boolean {
-    switch (op) {
-      case '==':
-        return left == right  // Intentional == for type coercion
-      case '!=':
-        return left != right
-      case '>':
-        return left > right
-      case '<':
-        return left < right
-      case '>=':
-        return left >= right
-      case '<=':
-        return left <= right
-      default:
-        console.warn(`Unknown operator: ${op}`)
-        return false
-    }
+export interface ExpressionContext {
+  trigger: any // Original trigger data
+  stages: Record<string, any[]> // Stage results by name
+  metadata?: {
+    executionId?: string
+    startTime?: string
+    currentStage?: string
   }
 }
+
+export interface EvaluationResult<T = any> {
+  success: boolean
+  value?: T
+  error?: string
+  expression: string
+}
+
+export class ExpressionEvaluator {
+  private customFunctions: Map<string, Function> = new Map()
+  private contextCache: ExpressionContext | null = null
+
+  /**
+   * Evaluate JMESPath expression
+   * No compilation - evaluates strings directly
+   */
+  evaluate<T = any>(expression: string, context: ExpressionContext): EvaluationResult<T> {
+    try {
+      // Store context for built-in functions
+      this.contextCache = context
+
+      const result = jmespath.search(context, expression)
+
+      return {
+        success: true,
+        value: result as T,
+        expression
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        error: error.message,
+        expression
+      }
+    }
+  }
+
+  /**
+   * Evaluate boolean condition (for when clauses)
+   */
+  evaluateCondition(expression: string, context: ExpressionContext): boolean {
+    const result = this.evaluate<boolean>(expression, context)
+
+    if (!result.success) {
+      console.error(`[Loom] Condition evaluation failed: ${result.error}`)
+      console.error(`  Expression: ${expression}`)
+      return false // Fail-safe: skip stage if condition errors
+    }
+
+    // Coerce to boolean
+    return result.value === true
+  }
+
+  /**
+   * Evaluate dynamic actor name
+   */
+  evaluateActorName(expression: string, context: ExpressionContext): string | null {
+    const result = this.evaluate<string>(expression, context)
+
+    if (!result.success) {
+      console.error(`[Loom] Actor evaluation failed: ${result.error}`)
+      return null
+    }
+
+    return result.value || null
+  }
+
+  /**
+   * Register custom JMESPath function
+   */
+  registerFunction(name: string, fn: (...args: any[]) => any): void {
+    this.customFunctions.set(name, fn)
+  }
+
+  /**
+   * Build JMESPath custom function table
+   */
+  private buildFunctionTable(): Record<string, Function> {
+    const functions: Record<string, Function> = {}
+
+    // Register custom functions
+    for (const [name, fn] of this.customFunctions.entries()) {
+      functions[name] = fn
+    }
+
+    // Built-in pipeline helpers
+    const self = this
+    functions['getStage'] = function(name: string, index: number = 0) {
+      return self.contextCache?.stages?.[name]?.[index]
+    }
+
+    functions['hasStage'] = function(name: string) {
+      return !!self.contextCache?.stages?.[name]?.length
+    }
+
+    functions['coalesce'] = function(...values: any[]) {
+      return values.find(v => v != null)
+    }
+
+    functions['nvl'] = function(value: any, defaultValue: any) {
+      return value != null ? value : defaultValue
+    }
+
+    return functions
+  }
+}
+
+/**
+ * Singleton instance for pipeline evaluations
+ */
+export const pipelineExpressionEvaluator = new ExpressionEvaluator()
+

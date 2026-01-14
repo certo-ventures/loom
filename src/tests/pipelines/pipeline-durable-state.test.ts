@@ -56,7 +56,7 @@ describe('Pipeline durable state', () => {
           mode: 'single',
           actor: 'OrderActor',
           input: {
-            orderId: '$.trigger.orderId'
+            orderId: 'trigger.orderId'
           }
         }
       ]
@@ -95,7 +95,7 @@ describe('Pipeline durable state', () => {
       mode: 'single',
       actor: 'ResumeActor',
       input: {
-        value: '$.trigger.value'
+        value: 'trigger.value'
       }
     }
 
@@ -239,7 +239,7 @@ describe('Pipeline durable state', () => {
           mode: 'single',
           actor: 'EchoActor',
           input: {
-            value: '$.trigger.value'
+            value: 'trigger.value'
           }
         }
       ]
@@ -303,7 +303,7 @@ describe('Pipeline durable state', () => {
             backoffDelay: 10
           },
           input: {
-            value: '$.trigger.value'
+            value: 'trigger.value'
           }
         }
       ]
@@ -388,11 +388,11 @@ describe('Pipeline durable state', () => {
           mode: 'scatter',
           actor: 'SlowDoubler',
           scatter: {
-            input: '$.trigger.values',
+            input: 'trigger.values',
             as: 'value'
           },
           input: {
-            value: '$.value'
+            value: 'value'
           }
         }
       ]

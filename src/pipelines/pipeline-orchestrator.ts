@@ -9,9 +9,9 @@ import type { MetricsCollector } from '../observability/types'
 import { PipelineDefinition, StageDefinition, StageRetryPolicy } from './pipeline-dsl'
 import type { PipelineMessage, ScheduledTaskRequest } from './stage-executor'
 import { Redis } from 'ioredis'
-import * as jp from 'jsonpath'
 import { v4 as uuidv4 } from 'uuid'
 import { StageExecutor, ExecutionContext } from './stage-executor'
+import { pipelineExpressionEvaluator } from './expression-evaluator'
 import {
   SingleExecutor,
   ScatterExecutor,
@@ -19,12 +19,12 @@ import {
   BroadcastExecutor,
   ForkJoinExecutor
 } from './builtin-executors'
+import { HumanApprovalExecutor } from './human-approval-executor'
 import type { PipelineStateStore, PipelineRecord } from './pipeline-state-store'
 import { DEFAULT_TASK_LEASE_TTL_MS } from './pipeline-state-store'
 import { CircuitBreakerManager } from './circuit-breaker'
 import { SagaCoordinator } from './saga-coordinator'
 import type { ApprovalDecision } from './human-approval-executor'
-import { ExpressionEvaluator } from './expression-evaluator'
 
 interface DeadLetterRecord {
   queueName: string
@@ -65,7 +65,8 @@ export class PipelineOrchestrator {
       ['scatter', new ScatterExecutor()],
       ['gather', new GatherExecutor()],
       ['broadcast', new BroadcastExecutor()],
-      ['fork-join', new ForkJoinExecutor()]
+      ['fork-join', new ForkJoinExecutor()],
+      ['human-approval', new HumanApprovalExecutor()]
     ])
 
     this.resumePromise = this.resumeInFlightPipelines().catch(error => {
@@ -327,7 +328,12 @@ export class PipelineOrchestrator {
 
       // Check when condition before executing
       if (stageDef.when) {
-        const shouldExecute = ExpressionEvaluator.evaluate(stageDef.when, state.context)
+        const evaluationContext = {
+          trigger: state.context.trigger,
+          stages: state.context.stages || {},
+          metadata: { executionId: pipelineId, currentStage: stageName }
+        }
+        const shouldExecute = pipelineExpressionEvaluator.evaluateCondition(stageDef.when, evaluationContext)
         if (!shouldExecute) {
           console.log(`   ⏭️  Skipping stage ${stageName} (when condition evaluated to false)`);
           await this.skipStage(pipelineId, stageDef, stageState)
@@ -1229,17 +1235,24 @@ export class PipelineOrchestrator {
   }
 
   /**
-   * Resolve input from context using JSONPath
+   * Resolve input from context using JMESPath
    */
-  private resolveInput(inputDef: Record<string, string>, context: any): any {
+  private resolveInput(inputDef: Record<string, any>, context: any): any {
     const resolved: any = {}
     
-    for (const [key, path] of Object.entries(inputDef)) {
-      if (path.startsWith('$')) {
-        const value = jp.value(context, path)
-        resolved[key] = value
+    for (const [key, value] of Object.entries(inputDef)) {
+      if (typeof value === 'string' && value.startsWith('$')) {
+        // Legacy JSONPath support - convert $.field to field
+        const jmesPath = value.substring(2) // Remove '$.'
+        const result = pipelineExpressionEvaluator.evaluate(jmesPath, context)
+        resolved[key] = result.success ? result.value : value
+      } else if (typeof value === 'string') {
+        // JMESPath expression or literal value
+        const result = pipelineExpressionEvaluator.evaluate(value, context)
+        resolved[key] = result.success ? result.value : value
       } else {
-        resolved[key] = path
+        // Non-string values
+        resolved[key] = value
       }
     }
     

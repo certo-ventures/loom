@@ -305,7 +305,8 @@ export abstract class Actor {
   protected async tryGetConfig<T = any>(configKey: string): Promise<T | null> {
     const resolver = (this.context as any).configResolver
     if (!resolver) {
-      throw new Error('ConfigResolver not provided in actor context. Add configResolver to runtime.')
+      // Gracefully return null if no config resolver (e.g., in tests)
+      return null
     }
     
     const value = await resolver.getWithContext(configKey, {

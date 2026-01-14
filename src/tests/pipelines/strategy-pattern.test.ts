@@ -70,11 +70,11 @@ describe('Strategy Pattern', () => {
           name: 'store-file',
           mode: 'single',
           actor: {
-            strategy: '$.trigger.fileSize > 1000000 ? "BlobStorage" : "CosmosStorage"'
+            strategy: 'trigger.fileSize > `1000000` ? "BlobStorage" : "CosmosStorage"'
           },
           input: {
-            size: '$.trigger.fileSize',
-            data: '$.trigger.data'
+            size: 'trigger.fileSize',
+            data: 'trigger.data'
           }
         }
       ]
@@ -139,13 +139,13 @@ describe('Strategy Pattern', () => {
           mode: 'single',
           actor: {
             when: [
-              { condition: '$.trigger.priority >= 9', actor: 'FastProcessor' },
-              { condition: '$.trigger.priority >= 5', actor: 'NormalProcessor' }
+              { condition: 'trigger.priority >= `9`', actor: 'FastProcessor' },
+              { condition: 'trigger.priority >= `5`', actor: 'NormalProcessor' }
             ],
             default: 'SlowProcessor'
           },
           input: {
-            priority: '$.trigger.priority'
+            priority: 'trigger.priority'
           }
         }
       ]
@@ -196,14 +196,14 @@ describe('Strategy Pattern', () => {
           name: 'process-items',
           mode: 'scatter',
           actor: {
-            strategy: '$.item.complexity < 5 ? "QuickProcessor" : "DetailedProcessor"'
+            strategy: 'item.complexity < `5` ? "QuickProcessor" : "DetailedProcessor"'
           },
           scatter: {
-            input: '$.trigger.items',
+            input: 'trigger.items',
             as: 'item'
           },
           input: {
-            id: '$.item.id'
+            id: 'item.id'
           }
         }
       ]

@@ -119,7 +119,7 @@ describe('Pipeline metrics instrumentation', () => {
           mode: 'single',
           actor: 'Echo',
           input: {
-            value: '$.trigger.value'
+            value: 'trigger.value'
           }
         }
       ]

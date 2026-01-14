@@ -7,6 +7,7 @@ import type { ActivityStore } from '../storage/activity-store'
 import type { ActorDefinition } from './actor-definition'
 import type { ActorLock, CoordinationAdapter } from '../storage'
 import { WASMActorAdapter } from './wasm-actor-adapter'
+import type { SignalRegistry, QueryRegistry, SearchQuery, SearchResult } from './temporal-features'
 
 /**
  * ActorRuntime configuration
@@ -41,6 +42,8 @@ export class LongLivedActorRuntime {
   private actorLastUsed = new Map<string, number>()
   private actorLocks = new Map<string, ActorLock>()
   private actorRegistry = new Map<string, ActorDefinition>()
+  private searchAttributeIndex = new Map<string, Map<string, any>>() // actorId -> attributes
+  private actorTypeIndex = new Map<string, Set<string>>() // type -> actorIds
 
   private blobStore: BlobStore
   private activityStore?: ActivityStore
@@ -331,5 +334,115 @@ export class LongLivedActorRuntime {
   clear(): void {
     this.actorPool.clear()
     this.actorLastUsed.clear()
+    this.searchAttributeIndex.clear()
+    this.actorTypeIndex.clear()
+  }
+
+  // ============================================================================
+  // TEMPORAL-INSPIRED FEATURES
+  // ============================================================================
+
+  /**
+   * Send signal to actor (async state update, journaled)
+   */
+  async signal(actorId: string, actorType: string, signalName: string, args: any[], context: ActorContext): Promise<void> {
+    const actor = await this.getActor(actorId, actorType, context)
+    
+    // Get signal registry from static property
+    const signals = (actor.constructor as any).signals as SignalRegistry || {}
+    const methodName = signals[signalName]
+    
+    if (!methodName) {
+      throw new Error(`Signal '${signalName}' not found on actor ${actorType}`)
+    }
+
+    // Call signal method (will be journaled)
+    await (actor as any)[methodName](...args)
+  }
+
+  /**
+   * Query actor (sync state read, not journaled)
+   */
+  async query<T = any>(actorId: string, actorType: string, queryName: string, args: any[], context: ActorContext): Promise<T> {
+    const actor = await this.getActor(actorId, actorType, context)
+    
+    // Get query registry from static property
+    const queries = (actor.constructor as any).queries as QueryRegistry || {}
+    const methodName = queries[queryName]
+    
+    if (!methodName) {
+      throw new Error(`Query '${queryName}' not found on actor ${actorType}`)
+    }
+
+    // Call query method (read-only)
+    return await (actor as any)[methodName](...args)
+  }
+
+  /**
+   * Update search attributes for actor
+   */
+  async updateSearchAttributes(actorId: string, actorType: string, attributes: Record<string, any>): Promise<void> {
+    // Convert Record to Map
+    const attributeMap = new Map(Object.entries(attributes))
+    this.searchAttributeIndex.set(actorId, attributeMap)
+    
+    // Index by type
+    if (!this.actorTypeIndex.has(actorType)) {
+      this.actorTypeIndex.set(actorType, new Set())
+    }
+    this.actorTypeIndex.get(actorType)!.add(actorId)
+  }
+
+  /**
+   * Search actors by attributes
+   */
+  async searchActors(query: SearchQuery): Promise<SearchResult[]> {
+    const results: SearchResult[] = []
+    
+    // Get candidates by type if specified
+    let candidates: Set<string>
+    if (query.type) {
+      candidates = this.actorTypeIndex.get(query.type) || new Set()
+    } else {
+      candidates = new Set(this.searchAttributeIndex.keys())
+    }
+
+    // Filter by attributes
+    for (const actorId of candidates) {
+      const attrs = this.searchAttributeIndex.get(actorId)
+      if (!attrs) continue
+
+      // Simple attribute matching
+      if (query.attributes) {
+        const matches = Object.entries(query.attributes).every(([key, value]) => attrs.get(key) === value)
+        if (!matches) continue
+      }
+
+      results.push({
+        actorId,
+        type: query.type || 'unknown',
+        attributes: attrs,
+        updatedAt: Date.now()
+      })
+    }
+
+    // Apply limit/offset
+    const offset = query.offset || 0
+    const limit = query.limit || 100
+    return results.slice(offset, offset + limit)
+  }
+
+  /**
+   * Complete async task from external system
+   */
+  async completeAsyncTask(actorId: string, actorType: string, taskToken: string, result: any, context: ActorContext): Promise<void> {
+    const actor = await this.getActor(actorId, actorType, context)
+    
+    // Check if actor has async task capability
+    if (typeof (actor as any).completeAsyncTask === 'function') {
+      await (actor as any).completeAsyncTask(taskToken, result)
+    } else {
+      throw new Error(`Actor ${actorType} does not support async tasks`)
+    }
   }
 }

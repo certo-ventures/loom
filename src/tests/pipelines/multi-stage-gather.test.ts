@@ -92,15 +92,15 @@ describe('Multi-Stage Gather', () => {
           name: 'process-with-a',
           mode: 'scatter',
           actor: 'ProcessorA',
-          scatter: { input: '$.trigger.items', as: 'item' },
-          input: { value: '$.item.value' }
+          scatter: { input: 'trigger.items', as: 'item' },
+          input: { value: 'item.value' }
         },
         {
           name: 'process-with-b',
           mode: 'scatter',
           actor: 'ProcessorB',
-          scatter: { input: '$.trigger.items', as: 'item' },
-          input: { value: '$.item.value' }
+          scatter: { input: 'trigger.items', as: 'item' },
+          input: { value: 'item.value' }
         },
         {
           name: 'consolidate-all',
@@ -111,7 +111,7 @@ describe('Multi-Stage Gather', () => {
             combine: 'concat'  // Concatenate results
           },
           input: {
-            data: '$.gathered'  // Access combined data
+            data: 'gathered'  // Access combined data
           }
         }
       ]
@@ -171,15 +171,15 @@ describe('Multi-Stage Gather', () => {
           name: 'extract-text',
           mode: 'scatter',
           actor: 'ExtractText',
-          scatter: { input: '$.trigger.pages', as: 'page' },
-          input: { page: '$.page' }
+          scatter: { input: 'trigger.pages', as: 'page' },
+          input: { page: 'page' }
         },
         {
           name: 'extract-images',
           mode: 'scatter',
           actor: 'ExtractImages',
-          scatter: { input: '$.trigger.pages', as: 'page' },
-          input: { page: '$.page' }
+          scatter: { input: 'trigger.pages', as: 'page' },
+          input: { page: 'page' }
         },
         {
           name: 'merge-extractions',
@@ -190,7 +190,7 @@ describe('Multi-Stage Gather', () => {
             combine: 'object'  // Create object with stage names as keys
           },
           input: {
-            stages: '$.gathered'  // Object: { 'extract-text': [...], 'extract-images': [...] }
+            stages: 'gathered'  // Object: { 'extract-text': [...], 'extract-images': [...] }
           }
         }
       ]
@@ -254,19 +254,19 @@ describe('Multi-Stage Gather', () => {
           name: 'classify',
           mode: 'single',
           actor: 'Classifier',
-          input: { doc: '$.trigger.document' }
+          input: { doc: 'trigger.document' }
         },
         {
           name: 'extract',
           mode: 'single',
           actor: 'Extractor',
-          input: { doc: '$.trigger.document' }
+          input: { doc: 'trigger.document' }
         },
         {
           name: 'validate',
           mode: 'single',
           actor: 'Validator',
-          input: { doc: '$.trigger.document' }
+          input: { doc: 'trigger.document' }
         },
         // Gather all 3 branches
         {
@@ -278,7 +278,7 @@ describe('Multi-Stage Gather', () => {
             combine: 'object'
           },
           input: {
-            all: '$.gathered'
+            all: 'gathered'
           }
         }
       ]

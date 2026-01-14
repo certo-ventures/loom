@@ -15,7 +15,7 @@ const pipelineDefinition: PipelineDefinition = {
       mode: 'single',
       actor: 'TestActor',
       input: {
-        id: '$.trigger.id'
+        id: 'trigger.id'
       }
     }
   ]

@@ -10,7 +10,7 @@
     "url": "https://github.com/certo-ventures/loom.git"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com/"
+    "registry": "https://npm.pkg.github.com"
   },
   "exports": {
     ".": {
@@ -105,9 +105,6 @@
     "README.md",
     "LICENSE"
   ],
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
   "scripts": {
     "setup": "./scripts/setup-dev.sh",
     "build:rust": "./scripts/build-rust.sh",
@@ -165,16 +162,19 @@
     "@anthropic-ai/sdk": "^0.71.2",
     "@azure/identity": "^4.2.0",
     "@azure/storage-blob": "^12.29.1",
+    "@types/jmespath": "^0.15.2",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
     "bullmq": "^5.65.1",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "ioredis": "^5.8.2",
+    "jmespath": "^0.16.0",
     "js-yaml": "^4.1.1",
     "jsonpath": "^1.1.1",
     "openai": "^6.10.0",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^5.4.449"
+    "pdfjs-dist": "^5.4.449",
+    "reflect-metadata": "^0.2.2"
   }
 }
