@@ -75,7 +75,7 @@ describe('Actor', () => {
 
     const journal = actor.getJournal()
     expect(journal.entries.length).toBeGreaterThan(0)
-    expect(journal.entries[0].type).toBe('state_updated')
+    expect(journal.entries[0].type).toBe('state_patches')
     expect(journal.entries[1].type).toBe('activity_scheduled')
   })
 

@@ -37,7 +37,7 @@ describe('Actor with JournalStore', () => {
     // Check persisted entries
     const entries = await journalStore.readEntries('test-1')
     expect(entries.length).toBeGreaterThan(0)
-    expect(entries.some(e => e.type === 'state_updated')).toBe(true)
+    expect(entries.some(e => e.type === 'state_patches')).toBe(true)
   })
 
   it('should load journal on actor restart', async () => {

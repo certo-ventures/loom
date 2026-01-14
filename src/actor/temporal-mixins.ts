@@ -247,17 +247,22 @@ export function withSearchAttributes<T extends new (...args: any[]) => Actor>(Ba
     async updateSearchAttributes(attributes: Record<string, any>): Promise<void> {
       // Validate against schema if defined
       const schema = (this.constructor as any).searchAttributes as SearchAttributeDefinition
+      const updates: Record<string, any> = {}
+      
       if (schema) {
         for (const [key, value] of Object.entries(attributes)) {
           if (!schema[key]) {
             console.warn(`Search attribute '${key}' not in schema, ignoring`)
             continue
           }
-          this._searchAttributes[key] = value
+          updates[key] = value
         }
       } else {
-        this._searchAttributes = { ...this._searchAttributes, ...attributes }
+        Object.assign(updates, attributes)
       }
+      
+      // Update the local copy
+      this._searchAttributes = { ...this._searchAttributes, ...updates }
 
       // Store in state for persistence
       this.updateState(draft => {
