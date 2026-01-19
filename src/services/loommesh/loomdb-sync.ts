@@ -375,7 +375,7 @@ export class LoomDBSync {
       timestamp: Date.now(),
       nodeId: node.id,
       node: result,
-      source: this.service.getNodeId?.() || 'local'
+      source: 'local'
     }
     
     this.broadcastChange(`node:${node.id}`, change)
@@ -394,7 +394,7 @@ export class LoomDBSync {
         type: ChangeType.NODE_DELETED,
         timestamp: Date.now(),
         nodeId: id,
-        source: this.service.getNodeId?.() || 'local'
+        source: 'local'
       }
       
       this.broadcastChange(`node:${id}`, change)
@@ -414,7 +414,7 @@ export class LoomDBSync {
       timestamp: Date.now(),
       edgeId: edge.id,
       edge: result,
-      source: this.service.getNodeId?.() || 'local'
+      source: 'local'
     }
     
     this.broadcastChange(`edge:${edge.id}`, change)
@@ -433,7 +433,7 @@ export class LoomDBSync {
         type: ChangeType.EDGE_DELETED,
         timestamp: Date.now(),
         edgeId: id,
-        source: this.service.getNodeId?.() || 'local'
+        source: 'local'
       }
       
       this.broadcastChange(`edge:${id}`, change)

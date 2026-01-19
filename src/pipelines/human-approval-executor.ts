@@ -27,6 +27,7 @@ import type { StageDefinition } from './pipeline-dsl'
 import { Redis } from 'ioredis'
 import { BullMQMessageQueue } from '../storage/bullmq-message-queue'
 import { v4 as uuidv4 } from 'uuid'
+import { pipelineExpressionEvaluator } from './expression-evaluator'
 
 export interface ApprovalRequest {
   approvalId: string
@@ -75,7 +76,9 @@ export class HumanApprovalExecutor extends BaseStageExecutor {
     console.log(`   Timeout: ${config.timeout}ms (${Math.floor(config.timeout / 1000)}s)`)
     
     // Resolve input data for approval
-    const input = this.resolveInput(context.stage.input, context.pipelineContext)
+    const input = typeof context.stage.input === 'string'
+      ? { _resolved: await pipelineExpressionEvaluator.evaluate(context.stage.input, context.pipelineContext) }
+      : this.resolveInput(context.stage.input, context.pipelineContext)
     
     // Create approval request
     const request: ApprovalRequest = {

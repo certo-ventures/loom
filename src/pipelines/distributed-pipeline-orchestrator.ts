@@ -180,7 +180,9 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
     const actorId = `${pipelineId}:actor:${stage.name}:single`
     
     // Resolve input
-    const input = this.resolveInput(stage.input, state.context)
+    const input = typeof stage.input === 'string'
+      ? { _resolved: await pipelineExpressionEvaluator.evaluate(stage.input, state.context) }
+      : this.resolveInput(stage.input, state.context)
     
     console.log(`   🎬 Spawning single actor: ${stage.actor}`)
     console.log(`   📨 Publishing actor task to Redis`)
@@ -235,7 +237,7 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
     console.log(`      Queue: queue:actors:${stage.actor}`)
     
     // Publish actor task for each item
-    const tasks = items ? items.map((item, index) => {
+    const tasks = items ? await Promise.all(items.map(async (item, index) => {
       const actorId = `${pipelineId}:actor:${stage.name}:${index}`
       
       // Create scoped context
@@ -244,7 +246,9 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
         [stage.scatter!.as]: item
       }
       
-      const input = this.resolveInput(stage.input, scopedContext)
+      const input = typeof stage.input === 'string'
+        ? { _resolved: await pipelineExpressionEvaluator.evaluate(stage.input, scopedContext) }
+        : this.resolveInput(stage.input, scopedContext)
       
       return {
         actorId,
@@ -255,7 +259,7 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
         itemIndex: index,
         resultChannel: `${pipelineId}:actor:completed`
       }
-    }) : []
+    })) : []
     
     // Push all tasks to Redis queue (work queue pattern)
     const pipeline = this.redis.pipeline()
@@ -320,7 +324,9 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
           group: { key, items }
         }
         
-        const input = this.resolveInput(stage.input, scopedContext)
+        const input = typeof stage.input === 'string'
+          ? { _resolved: await pipelineExpressionEvaluator.evaluate(stage.input, scopedContext) }
+          : this.resolveInput(stage.input, scopedContext)
         
         tasks.push({
           actorId,
