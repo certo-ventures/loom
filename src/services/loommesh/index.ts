@@ -6,6 +6,7 @@
  */
 
 export { LoomMeshService } from './loommesh-service.js'
+export { LoomMeshStateStore } from './state-store.js'
 export type {
   LoomMeshConfig,
   StorageConfig,
@@ -20,3 +21,14 @@ export {
   loadLoomMeshConfig,
   saveLoomMeshConfig
 } from './config.js'
+export type { LoomMeshMetrics } from './metrics.js'
+export type {
+  ActorState,
+  StateQueryOptions,
+  IStateStore
+} from './state-store.js'
+export {
+  SyncLatencyTracker,
+  PrometheusMetricsFormatter,
+  OperationCounter
+} from './metrics.js'

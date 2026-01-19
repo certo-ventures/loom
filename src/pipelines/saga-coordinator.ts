@@ -15,6 +15,7 @@
 
 import { Redis } from 'ioredis'
 import { BullMQMessageQueue } from '../storage/bullmq-message-queue'
+import { pipelineExpressionEvaluator } from './expression-evaluator'
 import type { StageDefinition } from './pipeline-dsl'
 import type { PipelineMessage } from './stage-executor'
 import { v4 as uuidv4 } from 'uuid'
@@ -156,20 +157,20 @@ export class SagaCoordinator {
 
   /**
    * Resolve compensation input from stage output
-   * Supports JSONPath, static values, or functions
+   * Supports JMESPath expressions or static values
    */
   private resolveCompensationInput(input: any, stageOutput: any): any {
-    if (typeof input === 'string' && input.startsWith('$.')) {
-      // JSONPath - extract from stage output
-      const jp = require('jsonpath')
-      return jp.value(stageOutput, input)
+    if (typeof input === 'string') {
+      // JMESPath expression - evaluate against stage output
+      const result = pipelineExpressionEvaluator.evaluate(input, stageOutput)
+      return result.success ? result.value : input
     } else if (typeof input === 'object') {
-      // Object with potential JSONPath values
+      // Object with potential JMESPath values
       const resolved: any = {}
       for (const [key, value] of Object.entries(input)) {
-        if (typeof value === 'string' && (value as string).startsWith('$.')) {
-          const jp = require('jsonpath')
-          resolved[key] = jp.value(stageOutput, value)
+        if (typeof value === 'string') {
+          const result = pipelineExpressionEvaluator.evaluate(value as string, stageOutput)
+          resolved[key] = result.success ? result.value : value
         } else {
           resolved[key] = value
         }

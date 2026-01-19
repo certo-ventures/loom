@@ -178,10 +178,10 @@ describe('PipelineActorWorker - Registration Patterns', () => {
             mode: 'scatter',
             actor: 'CountingActor',
             scatter: {
-              input: '$.trigger.items',
+              input: 'trigger.items',
               as: 'item'
             },
-            input: '$.item'
+            input: 'item'
           }
         ]
       }
@@ -333,10 +333,10 @@ describe('PipelineActorWorker - Registration Patterns', () => {
             mode: 'scatter',
             actor: 'FactoryCountingActor',
             scatter: {
-              input: '$.trigger.items',
+              input: 'trigger.items',
               as: 'item'
             },
-            input: '$.item'
+            input: 'item'
           }
         ]
       }

@@ -224,8 +224,71 @@ describe('LoomMeshService', () => {
       
       expect(metrics.connectedPeers).toBeDefined()
       expect(metrics.totalPeers).toBeDefined()
+      expect(metrics.healthStatus).toBeDefined()
+      expect(metrics.healthStatus).toMatch(/^(healthy|degraded|unhealthy)$/)
       expect(metrics.serverEnabled).toBe(true)
       expect(metrics.storageType).toBe('memory')
+    })
+    
+    it('should track read and write operations', async () => {
+      const config: LoomMeshConfig = {
+        storage: { type: 'memory' },
+        webSocket: { enabled: false }
+      }
+      
+      service = new LoomMeshService(config)
+      await service.start()
+      
+      // Perform operations
+      await service.write('test-key', { value: 42 })
+      await service.read('test-key')
+      await service.read('other-key')
+      
+      const metrics = await service.getMetrics()
+      
+      expect(metrics.readOperations).toBe(2)
+      expect(metrics.writeOperations).toBe(1)
+    })
+    
+    it('should track sync latency', async () => {
+      const config: LoomMeshConfig = {
+        storage: { type: 'memory' },
+        webSocket: { enabled: false }
+      }
+      
+      service = new LoomMeshService(config)
+      await service.start()
+      
+      // Perform some operations to generate latency data
+      await service.write('test-key', { value: 1 })
+      await service.read('test-key')
+      
+      const metrics = await service.getMetrics()
+      
+      // Should have latency metrics after operations
+      expect(metrics.syncLatencyMs).toBeGreaterThanOrEqual(0)
+    })
+    
+    it('should export Prometheus metrics', async () => {
+      const config: LoomMeshConfig = {
+        storage: { type: 'memory' },
+        webSocket: { enabled: false }
+      }
+      
+      service = new LoomMeshService(config)
+      await service.start()
+      
+      // Perform some operations
+      await service.write('test-key', { value: 42 })
+      await service.read('test-key')
+      
+      const prometheus = await service.getPrometheusMetrics()
+      
+      // Verify Prometheus format
+      expect(prometheus).toContain('# TYPE loommesh_')
+      expect(prometheus).toContain('loommesh_peers_connected')
+      expect(prometheus).toContain('loommesh_health')
+      expect(prometheus).toContain('loommesh_operations_total')
     })
     
     it('should include disk usage for disk storage', async () => {

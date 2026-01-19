@@ -21,12 +21,12 @@ export const basicMemoryPipeline: PipelineDefinition = {
       actor: 'EntityExtractor',
       mode: 'single',
       input: {
-        text: '$.text',
-        extractorConfig: '$.extractorConfig'
+        text: 'text',
+        extractorConfig: 'extractorConfig'
       },
       output: {
-        entities: '$.entities',
-        facts: '$.facts'
+        entities: 'entities',
+        facts: 'facts'
       }
     },
     {
@@ -34,11 +34,11 @@ export const basicMemoryPipeline: PipelineDefinition = {
       actor: 'ConfidenceFilter',
       mode: 'single',
       input: {
-        facts: '$.extract.facts',
-        threshold: '$.filterThreshold'
+        facts: 'extract.facts',
+        threshold: 'filterThreshold'
       },
       output: {
-        filtered_facts: '$.filtered_facts'
+        filtered_facts: 'filtered_facts'
       }
     },
     {
@@ -46,14 +46,14 @@ export const basicMemoryPipeline: PipelineDefinition = {
       actor: 'FactTransformer',
       mode: 'single',
       input: {
-        facts: '$.filter.filtered_facts',
-        entities: '$.extract.entities',
-        actorId: '$.actorId',
-        graphId: '$.graphId',
-        episodeId: '$.episodeId'
+        facts: 'filter.filtered_facts',
+        entities: 'extract.entities',
+        actorId: 'actorId',
+        graphId: 'graphId',
+        episodeId: 'episodeId'
       },
       output: {
-        transformed_facts: '$.transformed_facts'
+        transformed_facts: 'transformed_facts'
       }
     },
     {
@@ -61,8 +61,8 @@ export const basicMemoryPipeline: PipelineDefinition = {
       actor: 'MemoryStore',
       mode: 'single',
       input: {
-        facts: '$.transform.transformed_facts',
-        storageConfig: '$.storageConfig'
+        facts: 'transform.transformed_facts',
+        storageConfig: 'storageConfig'
       }
     }
   ]
@@ -83,8 +83,8 @@ export const enrichedMemoryPipeline: PipelineDefinition = {
       actor: 'EntityExtractor',
       mode: 'single',
       input: {
-        text: '$.text',
-        extractorConfig: '$.extractorConfig'
+        text: 'text',
+        extractorConfig: 'extractorConfig'
       }
     },
     {
@@ -92,8 +92,8 @@ export const enrichedMemoryPipeline: PipelineDefinition = {
       actor: 'ConfidenceFilter',
       mode: 'single',
       input: {
-        facts: '$.extract.facts',
-        threshold: '$.filterThreshold'
+        facts: 'extract.facts',
+        threshold: 'filterThreshold'
       }
     },
     {
@@ -101,11 +101,11 @@ export const enrichedMemoryPipeline: PipelineDefinition = {
       actor: 'FactTransformer',
       mode: 'single',
       input: {
-        facts: '$.filter.filtered_facts',
-        entities: '$.extract.entities',
-        actorId: '$.actorId',
-        graphId: '$.graphId',
-        episodeId: '$.episodeId'
+        facts: 'filter.filtered_facts',
+        entities: 'extract.entities',
+        actorId: 'actorId',
+        graphId: 'graphId',
+        episodeId: 'episodeId'
       }
     },
     {
@@ -113,8 +113,8 @@ export const enrichedMemoryPipeline: PipelineDefinition = {
       actor: 'EmbeddingEnricher',
       mode: 'single',
       input: {
-        facts: '$.transform.transformed_facts',
-        embedderConfig: '$.embedderConfig'
+        facts: 'transform.transformed_facts',
+        embedderConfig: 'embedderConfig'
       }
     },
     {
@@ -122,8 +122,8 @@ export const enrichedMemoryPipeline: PipelineDefinition = {
       actor: 'MemoryStore',
       mode: 'single',
       input: {
-        facts: '$.enrich.enriched_facts',
-        storageConfig: '$.storageConfig'
+        facts: 'enrich.enriched_facts',
+        storageConfig: 'storageConfig'
       }
     }
   ]
@@ -144,13 +144,13 @@ export const parallelMemoryPipeline: PipelineDefinition = {
       actor: 'EntityExtractor',
       mode: 'scatter',
       scatter: {
-        input: '$.conversations',
+        input: 'conversations',
         as: 'conversation',
-        condition: '$.conversation.processed != true'
+        condition: 'conversation.processed != true'
       },
       input: {
-        text: '$.item.text',
-        extractorConfig: '$.extractorConfig'
+        text: 'item.text',
+        extractorConfig: 'extractorConfig'
       }
     },
     {
@@ -162,7 +162,7 @@ export const parallelMemoryPipeline: PipelineDefinition = {
         condition: 'all'
       },
       input: {
-        results: '$.gathered'
+        results: 'gathered'
       }
     },
     {
@@ -170,8 +170,8 @@ export const parallelMemoryPipeline: PipelineDefinition = {
       actor: 'ConfidenceFilter',
       mode: 'single',
       input: {
-        facts: '$.gather-results.results[*].facts',
-        threshold: '$.filterThreshold'
+        facts: "gather-results.results[*].facts",
+        threshold: 'filterThreshold'
       }
     },
     {
@@ -179,10 +179,10 @@ export const parallelMemoryPipeline: PipelineDefinition = {
       actor: 'FactTransformer',
       mode: 'single',
       input: {
-        facts: '$.filter-all.filtered_facts',
-        entities: '$.gather-results.results[*].entities',
-        actorId: '$.actorId',
-        graphId: '$.graphId'
+        facts: "filter-all.filtered_facts",
+        entities: "gather-results.results[*].entities",
+        actorId: 'actorId',
+        graphId: 'graphId'
       }
     },
     {
@@ -190,8 +190,8 @@ export const parallelMemoryPipeline: PipelineDefinition = {
       actor: 'MemoryStore',
       mode: 'single',
       input: {
-        facts: '$.transform-all.transformed_facts',
-        storageConfig: '$.storageConfig'
+        facts: "transform-all.transformed_facts",
+        storageConfig: 'storageConfig'
       }
     }
   ]

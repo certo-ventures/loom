@@ -9,12 +9,14 @@ import type { StateStore } from './state-store'
 import type { CoordinationAdapter } from './coordination-adapter'
 import type { BlobStore } from './blob-store'
 import type { JournalStore } from './journal-store'
+import type { LoomMeshService } from '../services/loommesh/loommesh-service'
 import { InMemoryMessageQueue } from './in-memory-message-queue'
 import { InMemoryStateStore } from './in-memory-state-store'
 import { InMemoryCoordinationAdapter } from './in-memory-coordination-adapter'
 import { InMemoryBlobStore } from './in-memory-blob-store'
 import { InMemoryJournalStore } from './in-memory-journal-store'
 import { RedisJournalStore } from './redis-journal-store'
+import { GunStateStoreAdapter } from './gun-state-store-adapter'
 
 /**
  * Adapter configuration
@@ -26,8 +28,9 @@ export interface AdapterConfig {
   }
   
   stateStore?: {
-    type: 'cosmos' | 'inmemory'
+    type: 'cosmos' | 'inmemory' | 'gun'
     cosmos?: { endpoint: string; database: string }
+    gun?: { service: LoomMeshService }
   }
   
   coordinationAdapter?: {
@@ -75,6 +78,15 @@ export class AdapterFactory {
   static createStateStore(config?: AdapterConfig['stateStore']): StateStore {
     if (!config || config.type === 'inmemory') {
       return new InMemoryStateStore()
+    }
+    
+    if (config.type === 'gun') {
+      if (!config.gun?.service) {
+        throw new Error('LoomMeshService required for gun StateStore')
+      }
+      
+      // Wrap the IStateStore with adapter for legacy interface
+      return new GunStateStoreAdapter(config.gun.service.getStateStore())
     }
     
     if (config.type === 'cosmos') {

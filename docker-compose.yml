@@ -1,0 +1,111 @@
+version: '3.8'
+
+services:
+  # GUN Relay Server - Central peer for node discovery
+  gun-relay:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install gun@0.2020.1240 && node relay.js"
+    volumes:
+      - ./docker/relay.js:/app/relay.js
+    ports:
+      - "8765:8765"
+    networks:
+      loom-network:
+        ipv4_address: 172.25.0.10
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8765/gun"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # Loom Node 1 - First distributed node
+  loom-node-1:
+    image: node:20-alpine
+    working_dir: /app
+    environment:
+      - NODE_ID=node-1
+      - GUN_PEERS=http://gun-relay:8765/gun
+      - PORT=3001
+    command: sh -c "npm install && npx tsx node-runner.ts"
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    ports:
+      - "3001:3001"
+    networks:
+      loom-network:
+        ipv4_address: 172.25.0.11
+    depends_on:
+      gun-relay:
+        condition: service_healthy
+
+  # Loom Node 2 - Second distributed node
+  loom-node-2:
+    image: node:20-alpine
+    working_dir: /app
+    environment:
+      - NODE_ID=node-2
+      - GUN_PEERS=http://gun-relay:8765/gun
+      - PORT=3002
+    command: sh -c "npm install && npx tsx node-runner.ts"
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    ports:
+      - "3002:3002"
+    networks:
+      loom-network:
+        ipv4_address: 172.25.0.12
+    depends_on:
+      gun-relay:
+        condition: service_healthy
+
+  # Loom Node 3 - Third distributed node
+  loom-node-3:
+    image: node:20-alpine
+    working_dir: /app
+    environment:
+      - NODE_ID=node-3
+      - GUN_PEERS=http://gun-relay:8765/gun
+      - PORT=3003
+    command: sh -c "npm install && npx tsx node-runner.ts"
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    ports:
+      - "3003:3003"
+    networks:
+      loom-network:
+        ipv4_address: 172.25.0.13
+    depends_on:
+      gun-relay:
+        condition: service_healthy
+
+  # Test Orchestrator - Runs distributed tests
+  test-orchestrator:
+    image: node:20-alpine
+    working_dir: /app
+    environment:
+      - NODE_1_URL=http://loom-node-1:3001
+      - NODE_2_URL=http://loom-node-2:3002
+      - NODE_3_URL=http://loom-node-3:3003
+    command: sh -c "npm install && npx tsx tests/distributed/orchestrator.ts"
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    networks:
+      - loom-network
+    depends_on:
+      - loom-node-1
+      - loom-node-2
+      - loom-node-3
+    profiles:
+      - test
+
+networks:
+  loom-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16

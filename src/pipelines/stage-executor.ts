@@ -86,19 +86,31 @@ export abstract class BaseStageExecutor implements StageExecutor {
   abstract getName(): string
   
   /**
-   * Resolve input from context using JSONPath
+   * Resolve input (handles both string and object inputs)
+   * - String inputs: evaluated as JMESPath expressions
+   * - Object inputs: each property value evaluated as JMESPath
+   */
+  protected resolveStageInput(input: string | Record<string, any>, context: any): any {
+    if (typeof input === 'string') {
+      // String input - evaluate as JMESPath expression
+      const result = pipelineExpressionEvaluator.evaluate(input, context)
+      return (result.success && result.value !== null && result.value !== undefined) ? result.value : input
+    } else {
+      // Object input - resolve each property
+      return this.resolveInput(input, context)
+    }
+  }
+  
+  /**
+   * Resolve input object properties from context using JMESPath
+   * @deprecated Use resolveStageInput instead to handle both string and object inputs
    */
   protected resolveInput(inputDef: Record<string, any>, context: any): any {
     const resolved: any = {}
     
     for (const [key, value] of Object.entries(inputDef)) {
-      if (typeof value === 'string' && value.startsWith('$')) {
-        // Legacy JSONPath support - convert $.field to field
-        const jmesPath = value.substring(2) // Remove '$.'
-        const result = pipelineExpressionEvaluator.evaluate(jmesPath, context)
-        resolved[key] = result.success ? result.value : value
-      } else if (typeof value === 'string') {
-        // Try JMESPath evaluation - if it successfully resolves, use it; otherwise treat as literal
+      if (typeof value === 'string') {
+        // Evaluate string values as JMESPath expressions
         const result = pipelineExpressionEvaluator.evaluate(value, context)
         // Use the evaluated value if successful AND not null/undefined, otherwise use literal
         resolved[key] = (result.success && result.value !== null && result.value !== undefined) ? result.value : value
@@ -156,8 +168,28 @@ export abstract class BaseStageExecutor implements StageExecutor {
    * Resolve actor type from strategy
    */
   protected resolveActor(stage: StageDefinition, context: any): string {
-    // Simple string actor
+    // Simple string actor - try to evaluate as JMESPath expression first
     if (typeof stage.actor === 'string') {
+      // Evaluate string actor values as JMESPath expressions
+      // This handles both simple expressions and complex conditionals like:
+      // "stages.detectPdfType[0].pdfType == 'text' && 'TextBasedClassification' || 'ImageBasedClassification'"
+      const result = pipelineExpressionEvaluator.evaluate(stage.actor, context)
+      
+      // Check if evaluation was successful AND returned a valid non-empty string
+      // JMESPath returns null when it can't evaluate (e.g., property doesn't exist)
+      if (result.success && 
+          result.value !== null && 
+          result.value !== undefined && 
+          typeof result.value === 'string' && 
+          result.value.trim().length > 0) {
+        // Successfully evaluated as JMESPath expression
+        console.log(`   🔍 Dynamic actor resolved: ${stage.actor} → ${result.value}`)
+        return result.value as string
+      }
+      
+      // If evaluation returned null/undefined, treat as literal actor name
+      // This allows simple actor names like "MyActor" to work without being JMESPath
+      console.log(`   📦 Using literal actor name: ${stage.actor}`)
       return stage.actor
     }
     

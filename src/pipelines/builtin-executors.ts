@@ -27,7 +27,7 @@ export class SingleExecutor extends BaseStageExecutor {
   async execute(context: ExecutionContext): Promise<ExecutionResult> {
     const { stage, pipelineContext } = context
     
-    const input = this.resolveInput(stage.input, pipelineContext)
+    const input = this.resolveStageInput(stage.input, pipelineContext)
     const actorType = this.resolveActor(stage, pipelineContext)
     
     await this.enqueueActorTask(context, actorType, 0, input)
@@ -121,7 +121,7 @@ export class ScatterExecutor extends BaseStageExecutor {
         [stage.scatter.as]: item
       }
       
-      const input = this.resolveInput(stage.input, scopedContext)
+      const input = this.resolveStageInput(stage.input, scopedContext)
       const actorType = this.resolveActor(stage, scopedContext)
       
       await this.enqueueActorTask(context, actorType, i, input)
@@ -207,7 +207,7 @@ export class GatherExecutor extends BaseStageExecutor {
           group: { key, items }
         }
         
-        const input = this.resolveInput(stage.input, scopedContext)
+        const input = this.resolveStageInput(stage.input, scopedContext)
         const actorType = this.resolveActor(stage, scopedContext)
         
         await this.enqueueActorTask(context, actorType, groupIndex, input, { groupKey: key })
@@ -220,7 +220,7 @@ export class GatherExecutor extends BaseStageExecutor {
       return { expectedTasks: groups.size }
     } else {
       // No grouping - single consolidation with all items
-      const input = this.resolveInput(stage.input, {
+      const input = this.resolveStageInput(stage.input, {
         ...pipelineContext,
         gathered: combinedData  // Provide combined data for multi-stage gather
       })
@@ -257,7 +257,7 @@ export class BroadcastExecutor extends BaseStageExecutor {
     const { stage, pipelineContext } = context
     const config = this.getConfig<BroadcastConfig>(stage)
     
-    const input = this.resolveInput(stage.input, pipelineContext)
+    const input = this.resolveStageInput(stage.input, pipelineContext)
     
     console.log(`   📢 BROADCAST: Sending to ${config.actors.length} actors`)
     
@@ -288,7 +288,7 @@ export class BroadcastExecutor extends BaseStageExecutor {
 export interface MapReduceConfig {
   mapActor: string      // Actor for map phase
   reduceActor: string   // Actor for reduce phase
-  combineBy?: string    // JSONPath for grouping (optional)
+  combineBy?: string    // JMESPath for grouping (optional)
 }
 
 export class MapReduceExecutor extends BaseStageExecutor {
@@ -350,8 +350,8 @@ export class ForkJoinExecutor extends BaseStageExecutor {
       const branch = config.branches[i]
       
       const input = branch.input 
-        ? this.resolveInput(branch.input, pipelineContext)
-        : this.resolveInput(stage.input, pipelineContext)
+        ? this.resolveStageInput(branch.input, pipelineContext)
+        : this.resolveStageInput(stage.input, pipelineContext)
       
       await this.enqueueActorTask(context, branch.actor, i, input, { branchName: branch.name })
       console.log(`      └─ Branch "${branch.name}": ${branch.actor}`)

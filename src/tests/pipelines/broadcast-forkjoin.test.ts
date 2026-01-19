@@ -88,7 +88,7 @@ describe('Broadcast Executor', () => {
             waitForAll: true
           },
           input: {
-            message: '$.trigger.message'
+            message: 'trigger.message'
           }
         }
       ]
@@ -147,7 +147,7 @@ describe('Broadcast Executor', () => {
             actors: ['ValidatorA', 'ValidatorB', 'ValidatorC'],
             waitForAll: true
           },
-          input: { value: '$.trigger.value' }
+          input: { value: 'trigger.value' }
         }
       ]
     }
@@ -243,21 +243,21 @@ describe('Fork-Join Executor', () => {
               {
                 name: 'text-branch',
                 actor: 'TextExtractor',
-                input: { docId: '$.trigger.docId' }
+                input: { docId: 'trigger.docId' }
               },
               {
                 name: 'image-branch',
                 actor: 'ImageExtractor',
-                input: { docId: '$.trigger.docId' }
+                input: { docId: 'trigger.docId' }
               },
               {
                 name: 'metadata-branch',
                 actor: 'MetadataExtractor',
-                input: { docId: '$.trigger.docId' }
+                input: { docId: 'trigger.docId' }
               }
             ]
           },
-          input: { docId: '$.trigger.docId' }
+          input: { docId: 'trigger.docId' }
         }
       ]
     }

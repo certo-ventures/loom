@@ -235,7 +235,9 @@ export class PipelineActorWorker {
       await this.messageQueue.enqueue('pipeline-stage-results', failureMessage)
       console.log(`      📨 Failure sent to: pipeline-stage-results`)
 
-      throw error
+      // DO NOT throw - we've already sent the failure message to the orchestrator
+      // Throwing would cause BullMQ to retry the job, creating infinite loops
+      // The pipeline orchestrator handles retries based on the failure message
     } finally {
       if (recordedActivation) {
         this.metricsCollector?.recordActorEvent('idle')

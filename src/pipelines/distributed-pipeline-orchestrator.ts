@@ -455,19 +455,14 @@ export class DistributedPipelineOrchestrator extends EventEmitter {
   }
 
   /**
-   * Resolve input from context using JSONPath
+   * Resolve input from context using JMESPath
    */
   private resolveInput(inputDef: Record<string, any>, context: any): any {
     const resolved: any = {}
     
     for (const [key, value] of Object.entries(inputDef)) {
-      if (typeof value === 'string' && value.startsWith('$')) {
-        // Legacy JSONPath support - convert $.field to field
-        const jmesPath = value.substring(2) // Remove '$.'
-        const result = pipelineExpressionEvaluator.evaluate(jmesPath, context)
-        resolved[key] = result.success ? result.value : value
-      } else if (typeof value === 'string') {
-        // JMESPath expression or literal value
+      if (typeof value === 'string') {
+        // Evaluate string values as JMESPath expressions
         const result = pipelineExpressionEvaluator.evaluate(value, context)
         resolved[key] = result.success ? result.value : value
       } else {

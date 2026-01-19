@@ -463,7 +463,8 @@ export class PipelineOrchestrator {
 
     await this.messageQueue.enqueue(queueName, message, {
       jobId: this.buildJobId(pipelineId, stage.name, stageState.attempt, task.taskIndex, retryAttempt),
-      attempts: 1,
+      attempts: 1, // BullMQ attempts (we handle retries at pipeline level)
+      removeOnFail: false, // Keep failed jobs for debugging
       delay: delayMs
     })
 
@@ -1241,13 +1242,8 @@ export class PipelineOrchestrator {
     const resolved: any = {}
     
     for (const [key, value] of Object.entries(inputDef)) {
-      if (typeof value === 'string' && value.startsWith('$')) {
-        // Legacy JSONPath support - convert $.field to field
-        const jmesPath = value.substring(2) // Remove '$.'
-        const result = pipelineExpressionEvaluator.evaluate(jmesPath, context)
-        resolved[key] = result.success ? result.value : value
-      } else if (typeof value === 'string') {
-        // JMESPath expression or literal value
+      if (typeof value === 'string') {
+        // Evaluate string values as JMESPath expressions
         const result = pipelineExpressionEvaluator.evaluate(value, context)
         resolved[key] = result.success ? result.value : value
       } else {

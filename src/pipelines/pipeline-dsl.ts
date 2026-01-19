@@ -21,7 +21,7 @@
  * Allows choosing actor at runtime based on conditions
  */
 export interface ActorStrategy {
-  // Strategy expression (ternary): $.fileSize > 1000000 ? "BlobStorage" : "CosmosStorage"
+  // Strategy expression (ternary): fileSize > 1000000 ? "BlobStorage" : "CosmosStorage"
   strategy: string
   
   // Or explicit mappings
@@ -88,11 +88,12 @@ export interface StageDefinition {
   }
   
   // Input mapping (JMESPath expressions or static values)
-  // Examples:
-  //   fileUrl: "trigger.fileUrl"
-  //   pages: "stages.extract[0].pages"
-  //   content: "stages.detect[0].pdfType == 'text' && stages.extractText[0].text || stages.extractImages[0].imageUrls"
-  input: Record<string, string | any>
+  // Can be:
+  //   - String: JMESPath expression evaluated against pipeline context
+  //     Example: "trigger" or "stages.extract[0].pages"
+  //   - Object: Key-value pairs where values are JMESPath expressions
+  //     Example: { fileUrl: "trigger.fileUrl", pages: "stages.extract[0].pages" }
+  input: string | Record<string, string | any>
   
   // Output mapping (what to emit for next stages)
   output?: Record<string, string>
@@ -127,7 +128,7 @@ export interface StageDefinition {
   // NEW: Saga compensation for rollback
   compensation?: {
     actor: string             // Actor to execute on rollback
-    input: any                // JSONPath or static data
+    input: any                // JMESPath or static data
     condition?: string        // Optional condition
   }
   
@@ -175,16 +176,16 @@ export const DOCUMENT_PROCESSING_PIPELINE: PipelineDefinition = {
       actor: 'FileProcessorActor',
       mode: 'scatter',
       scatter: {
-        input: '$.files',  // JSONPath to array of files
+        input: 'files',  // JMESPath to array of files
         as: 'file'  // Each file becomes 'file' variable
       },
       input: {
-        fileId: '$.file.fileId',
-        fileName: '$.file.fileName',
-        path: '$.file.path'
+        fileId: 'file.fileId',
+        fileName: 'file.fileName',
+        path: 'file.path'
       },
       output: {
-        pages: '$.pages'  // Array of page objects
+        pages: 'pages'  // Array of page objects
       },
       config: {
         concurrency: 10,  // Process up to 10 files in parallel
@@ -198,17 +199,17 @@ export const DOCUMENT_PROCESSING_PIPELINE: PipelineDefinition = {
       actor: 'ClassificationActor',
       mode: 'scatter',
       scatter: {
-        input: '$.stages.SplitFiles.*.pages[*]',  // Flatten all pages from previous stage
+        input: "stages.SplitFiles[*].pages[*]",  // Flatten all pages from previous stage
         as: 'page'
       },
       input: {
-        pageId: '$.page.pageId',
-        imagePath: '$.page.pngPath'
+        pageId: 'page.pageId',
+        imagePath: 'page.pngPath'
       },
       output: {
-        pageId: '$.pageId',
-        documentType: '$.classification.type',
-        confidence: '$.classification.confidence'
+        pageId: 'pageId',
+        documentType: 'classification.type',
+        confidence: 'classification.confidence'
       },
       config: {
         concurrency: 20  // Classify up to 20 pages in parallel
@@ -221,18 +222,18 @@ export const DOCUMENT_PROCESSING_PIPELINE: PipelineDefinition = {
       actor: 'ExtractionActor',
       mode: 'scatter',
       scatter: {
-        input: '$.stages.ClassifyPages.*',
+        input: "stages.ClassifyPages[*]",
         as: 'classifiedPage'
       },
       input: {
-        pageId: '$.classifiedPage.pageId',
-        documentType: '$.classifiedPage.documentType',
-        imagePath: '$.classifiedPage.imagePath'
+        pageId: 'classifiedPage.pageId',
+        documentType: 'classifiedPage.documentType',
+        imagePath: 'classifiedPage.imagePath'
       },
       output: {
-        pageId: '$.pageId',
-        documentType: '$.documentType',
-        extractedData: '$.data'
+        pageId: 'pageId',
+        documentType: 'documentType',
+        extractedData: 'data'
       },
       config: {
         concurrency: 15
@@ -247,16 +248,16 @@ export const DOCUMENT_PROCESSING_PIPELINE: PipelineDefinition = {
       gather: {
         stage: 'ExtractData',
         condition: 'all',  // Wait for ALL extractions
-        groupBy: '$.documentType'  // Group by document type
+        groupBy: 'documentType'  // Group by document type
       },
       input: {
-        documentType: '$.group.key',  // The documentType we're consolidating
-        pages: '$.group.items'  // All pages of this type
+        documentType: 'group.key',  // The documentType we're consolidating
+        pages: 'group.items'  // All pages of this type
       },
       output: {
-        documentType: '$.documentType',
-        consolidatedSchema: '$.schema',
-        pageCount: '$.pageCount'
+        documentType: 'documentType',
+        consolidatedSchema: 'schema',
+        pageCount: 'pageCount'
       },
       config: {
         concurrency: 5  // Process 5 document types in parallel
@@ -269,13 +270,13 @@ export const DOCUMENT_PROCESSING_PIPELINE: PipelineDefinition = {
       actor: 'ValidationActor',
       mode: 'single',
       input: {
-        fileSetId: '$.trigger.fileSetId',
-        documents: '$.stages.ConsolidateByType'  // Array of all consolidation outputs
+        fileSetId: 'trigger.fileSetId',
+        documents: 'stages.ConsolidateByType'  // Array of all consolidation outputs
       },
       output: {
-        fileSetId: '$.fileSetId',
-        status: '$.status',
-        documentCount: '$.documentCount'
+        fileSetId: 'fileSetId',
+        status: 'status',
+        documentCount: 'documentCount'
       }
     }
   ],

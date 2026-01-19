@@ -18,12 +18,19 @@
 
 import Gun from 'gun'
 import type { IGunInstance } from 'gun'
-import { BaseService, type HealthStatus, type ServiceMetrics } from '../service.js'
+import { BaseService, type HealthStatus } from '../service.js'
 import type { LoomMeshConfig } from './config.js'
 import { applyDefaults } from './config.js'
+import { LoomMeshStateStore, type IStateStore } from './state-store.js'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import { createServer, type Server as HTTPServer } from 'http'
+import {
+  type LoomMeshMetrics,
+  SyncLatencyTracker,
+  PrometheusMetricsFormatter,
+  OperationCounter,
+} from './metrics.js'
 
 /**
  * Peer connection info
@@ -52,6 +59,7 @@ interface GunPeer {
 export class LoomMeshService extends BaseService {
   private config: Required<LoomMeshConfig>
   private gun?: IGunInstance
+  private stateStore?: IStateStore
   private peers: Map<string, PeerInfo> = new Map()
   private httpServer?: HTTPServer
   private retryTimers: Map<string, NodeJS.Timeout> = new Map()
@@ -60,6 +68,11 @@ export class LoomMeshService extends BaseService {
   private gunReady = false
   private initializationPromise?: Promise<void>
   private cleanupHandlers: Array<() => void> = []
+
+  // Metrics tracking
+  private latencyTracker = new SyncLatencyTracker()
+  private operationCounter = new OperationCounter()
+  private metricsFormatter = new PrometheusMetricsFormatter('loommesh')
 
   constructor(config: LoomMeshConfig) {
     super(config.name || 'loommesh')
@@ -210,22 +223,65 @@ export class LoomMeshService extends BaseService {
     }
   }
 
-  protected async onGetMetrics(): Promise<ServiceMetrics> {
+  protected async onGetMetrics(): Promise<LoomMeshMetrics> {
     const connectedPeers = Array.from(this.peers.values()).filter(p => p.connected).length
+    const totalPeers = this.peers.size
     
-    const metrics: ServiceMetrics = {
+    // Determine health status
+    let healthStatus: 'healthy' | 'degraded' | 'unhealthy' = 'healthy'
+    if (!this.gun || !this.gunReady) {
+      healthStatus = 'unhealthy'
+    } else if (totalPeers > 0 && connectedPeers === 0) {
+      healthStatus = 'unhealthy'
+    } else if (totalPeers > 0 && connectedPeers < totalPeers / 2) {
+      healthStatus = 'degraded'
+    }
+    
+    const metrics: LoomMeshMetrics = {
       connectedPeers,
-      totalPeers: this.peers.size,
+      totalPeers,
+      healthStatus,
       serverEnabled: this.config.webSocket.enabled,
-      storageType: this.config.storage.type
+      storageType: this.config.storage.type,
+      readOperations: this.operationCounter.getReadCount(),
+      writeOperations: this.operationCounter.getWriteCount(),
     }
     
     // Add disk usage for disk/azure-files storage
     if (this.config.storage.path) {
       try {
-        metrics.diskUsage = await this.getDiskUsage()
+        metrics.diskUsageBytes = await this.getDiskUsage()
       } catch (error) {
         this.log(`Failed to get disk usage: ${error}`)
+      }
+    }
+    
+    // Add sync latency metrics
+    const avgLatency = this.latencyTracker.getAverageLatency()
+    if (avgLatency !== undefined) {
+      metrics.syncLatencyMs = avgLatency
+      metrics.syncLatencyP50 = this.latencyTracker.getPercentile(50)
+      metrics.syncLatencyP95 = this.latencyTracker.getPercentile(95)
+      metrics.syncLatencyP99 = this.latencyTracker.getPercentile(99)
+    }
+    
+    // Add estimated network nodes (if we can get it from GUN)
+    // This is approximate - GUN doesn't expose exact mesh size
+    // We estimate based on unique peer IDs we've seen
+    if (this.gun) {
+      try {
+        const peerIds = new Set<string>()
+        const gunPeers = (this.gun as any)._.opt?.peers || {}
+        Object.values(gunPeers).forEach((peer: any) => {
+          if (peer?.id) {
+            peerIds.add(peer.id)
+          }
+        })
+        if (peerIds.size > 0) {
+          metrics.estimatedNetworkNodes = peerIds.size
+        }
+      } catch (error) {
+        // Ignore errors in node estimation
       }
     }
     
@@ -262,6 +318,79 @@ export class LoomMeshService extends BaseService {
       }
       await new Promise(resolve => setTimeout(resolve, 50))
     }
+  }
+
+  /**
+   * Read data from GUN with latency tracking
+   * This is a convenience method that wraps GUN's get() with metrics
+   */
+  async read<T = any>(key: string, timeoutMs = 5000): Promise<T | null> {
+    const startTime = Date.now()
+    this.operationCounter.recordRead()
+    
+    try {
+      const result = await new Promise<T | null>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Read timeout after ${timeoutMs}ms`))
+        }, timeoutMs)
+        
+        this.getGun().get(key).once((data: any) => {
+          clearTimeout(timeout)
+          resolve(data as T | null)
+        })
+      })
+      
+      const latency = Date.now() - startTime
+      this.latencyTracker.recordLatency(latency)
+      
+      return result
+    } catch (error) {
+      const latency = Date.now() - startTime
+      this.latencyTracker.recordLatency(latency)
+      throw error
+    }
+  }
+
+  /**
+   * Write data to GUN with latency tracking
+   * This is a convenience method that wraps GUN's put() with metrics
+   */
+  async write(key: string, value: any, timeoutMs = 5000): Promise<void> {
+    const startTime = Date.now()
+    this.operationCounter.recordWrite()
+    
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error(`Write timeout after ${timeoutMs}ms`))
+        }, timeoutMs)
+        
+        this.getGun().get(key).put(value, (ack: any) => {
+          clearTimeout(timeout)
+          if (ack.err) {
+            reject(new Error(ack.err))
+          } else {
+            resolve()
+          }
+        })
+      })
+      
+      const latency = Date.now() - startTime
+      this.latencyTracker.recordLatency(latency)
+    } catch (error) {
+      const latency = Date.now() - startTime
+      this.latencyTracker.recordLatency(latency)
+      throw error
+    }
+  }
+
+  /**
+   * Get Prometheus-formatted metrics
+   * This endpoint can be exposed via HTTP for scraping
+   */
+  async getPrometheusMetrics(): Promise<string> {
+    const metrics = await this.getMetrics() as LoomMeshMetrics
+    return this.metricsFormatter.format(metrics)
   }
 
   /**
@@ -308,7 +437,35 @@ export class LoomMeshService extends BaseService {
    */
   private async startHttpServer(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.httpServer = createServer()
+      this.httpServer = createServer(async (req, res) => {
+        // Handle /metrics endpoint for Prometheus
+        if (req.url === '/metrics') {
+          try {
+            const metrics = await this.getPrometheusMetrics()
+            res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4' })
+            res.end(metrics)
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'text/plain' })
+            res.end(`Error generating metrics: ${error}`)
+          }
+          return
+        }
+        
+        // Handle /health endpoint
+        if (req.url === '/health') {
+          try {
+            const status = await this.getHealthStatus()
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ status }))
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ status: 'unhealthy', error: String(error) }))
+          }
+          return
+        }
+        
+        // All other requests handled by GUN (WebSocket upgrade, etc.)
+      })
       
       const timeoutId = setTimeout(() => {
         reject(new Error(`HTTP server failed to start within 5 seconds`))
@@ -380,6 +537,10 @@ export class LoomMeshService extends BaseService {
         // GUN initializes synchronously for most operations
         // Mark as ready immediately
         this.gunReady = true
+        
+        // Create state store after GUN is ready
+        this.stateStore = new LoomMeshStateStore(this.gun)
+        this.log('State store initialized')
         
         // Give GUN a moment to settle
         await new Promise(resolve => setTimeout(resolve, 100))
@@ -606,5 +767,15 @@ export class LoomMeshService extends BaseService {
     if (this.config.debug) {
       console.log(`[${this.name}] ${message}`)
     }
+  }
+  
+  /**
+   * Get the state store instance
+   */
+  getStateStore(): IStateStore {
+    if (!this.stateStore) {
+      throw new Error('State store not initialized - service must be started first')
+    }
+    return this.stateStore
   }
 }
